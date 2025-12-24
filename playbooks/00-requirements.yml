@@ -10,3 +10,4 @@
           - curl
           - wget
           - python3-firewall  # Required for ansible.posix.firewalld module
+          - sudo
