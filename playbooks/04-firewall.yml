@@ -1,0 +1,130 @@
+---
+- name: Configure firewalld
+  hosts: all
+  become: true
+  handlers:
+    - name: Import shared handlers
+      ansible.builtin.import_tasks: handlers/main.yml
+
+  tasks:
+    - name: Validate firewall configuration
+      ansible.builtin.assert:
+        that:
+          - features.firewall.default_target in ['DROP', 'ACCEPT', 'REJECT', 'default']
+          - features.firewall.default_zone is defined
+          - features.firewall.log_denied in ['all', 'unicast', 'broadcast', 'multicast', 'off']
+        fail_msg: "Invalid firewall configuration. Check default_target and log_denied values."
+        success_msg: "Firewall configuration is valid"
+      when: features.firewall.enabled | default(false)
+
+    - name: Warning for restrictive firewall
+      ansible.builtin.debug:
+        msg: |
+          WARNING: Firewall default target is set to {{ features.firewall.default_target }}!
+          This will block all traffic not explicitly allowed.
+          Ensure SSH access is configured in allowed_ports or allowed_services!
+      when:
+        - features.firewall.enabled | default(false)
+        - features.firewall.default_target == 'DROP'
+
+    - name: Install firewalld
+      ansible.builtin.include_tasks: tasks/install_packages.yml
+      vars:
+        package_list: [firewalld]
+      when: features.firewall.enabled | default(false)
+
+    - name: Ensure firewalld is enabled and started
+      ansible.builtin.systemd:
+        name: firewalld
+        enabled: true
+        state: started
+        masked: false
+      when: features.firewall.enabled | default(false)
+
+    - name: Set default zone
+      ansible.posix.firewalld:
+        zone: "{{ features.firewall.default_zone | default('public') }}"
+        state: enabled
+        permanent: true
+        immediate: true
+      when: features.firewall.enabled | default(false)
+
+    - name: Configure allowed services
+      ansible.posix.firewalld:
+        service: "{{ item }}"
+        zone: "{{ features.firewall.default_zone | default('public') }}"
+        state: enabled
+        permanent: true
+        immediate: true
+      loop: "{{ features.firewall.allowed_services | default([]) }}"
+      when: features.firewall.enabled | default(false)
+
+    - name: Configure allowed ports
+      ansible.posix.firewalld:
+        port: "{{ item.port }}/{{ item.protocol | default('tcp') }}"
+        zone: "{{ features.firewall.default_zone | default('public') }}"
+        state: enabled
+        permanent: true
+        immediate: true
+      loop: "{{ features.firewall.allowed_ports | default([]) }}"
+      when: features.firewall.enabled | default(false)
+
+    - name: Configure rich rules
+      ansible.posix.firewalld:
+        rich_rule: "{{ item }}"
+        zone: "{{ features.firewall.default_zone | default('public') }}"
+        state: enabled
+        permanent: true
+        immediate: true
+      loop: "{{ features.firewall.rich_rules | default([]) }}"
+      when: features.firewall.enabled | default(false)
+
+    - name: Configure source IP restrictions
+      ansible.posix.firewalld:
+        source: "{{ item }}"
+        zone: "{{ features.firewall.default_zone | default('public') }}"
+        state: enabled
+        permanent: true
+        immediate: true
+      loop: "{{ features.firewall.allowed_sources | default([]) }}"
+      when: features.firewall.enabled | default(false)
+
+    - name: Block ICMP types
+      ansible.posix.firewalld:
+        icmp_block: "{{ item }}"
+        zone: "{{ features.firewall.default_zone | default('public') }}"
+        state: enabled
+        permanent: true
+        immediate: true
+      loop: "{{ features.firewall.block_icmp | default([]) }}"
+      when: features.firewall.enabled | default(false)
+
+    - name: Set default target for zone
+      ansible.builtin.command: >
+        firewall-cmd --permanent --zone={{ features.firewall.default_zone | default('public') }}
+        --set-target={{ features.firewall.default_target | default('default') }}
+      when:
+        - features.firewall.enabled | default(false)
+        - features.firewall.default_target is defined
+      register: set_target
+      changed_when: "'ZONE_ALREADY_SET' not in set_target.stderr"
+      failed_when: set_target.rc != 0 and 'ZONE_ALREADY_SET' not in set_target.stderr
+      notify: Reload firewalld
+
+    - name: Enable logging for denied packets
+      ansible.builtin.command: >
+        firewall-cmd --set-log-denied={{ features.firewall.log_denied | default('off') }}
+      when:
+        - features.firewall.enabled | default(false)
+        - features.firewall.log_denied is defined
+      register: set_log
+      changed_when: set_log.rc == 0
+      failed_when: set_log.rc != 0
+
+    - name: Save firewall runtime configuration to permanent
+      ansible.builtin.command: firewall-cmd --runtime-to-permanent
+      when:
+        - features.firewall.enabled | default(false)
+        - features.firewall.log_denied is defined
+        - set_log.rc == 0
+      changed_when: true

@@ -1,0 +1,14 @@
+---
+# Ansible Collections and Roles Requirements
+# Install with: ansible-galaxy install -r requirements.yml
+
+collections:
+  - name: ansible.posix
+    version: ">=1.5.0"
+  - name: community.general
+    version: ">=7.0.0"
+
+# Add roles here as needed
+# roles:
+#   - name: geerlingguy.security
+#     version: "2.3.0"

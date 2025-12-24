@@ -1,0 +1,14 @@
+---
+# Reusable task to backup configuration files
+# Usage: include_tasks with vars: backup_source, backup_mode (optional)
+
+- name: "Backup {{ backup_source }}"
+  ansible.builtin.copy:
+    src: "{{ backup_source }}"
+    dest: "{{ backup_dest | default(backup_source + backup_suffix | default('.backup')) }}"
+    remote_src: true
+    mode: "{{ backup_mode | default('0600') }}"
+    owner: root
+    group: root
+    force: false
+  when: backup_enabled | default(true)

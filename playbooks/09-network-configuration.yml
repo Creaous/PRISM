@@ -1,0 +1,33 @@
+- name: Configure networking
+  hosts: all
+  become: true
+  tasks:
+    - name: Configure hostname
+      when:
+        - features.system.hostname is defined
+        - features.system.hostname | length > 0
+      block:
+        - name: Get current hostname
+          ansible.builtin.command: hostname
+          register: current_hostname
+          changed_when: false
+
+        - name: Set hostname
+          ansible.builtin.hostname:
+            name: "{{ features.system.hostname }}"
+            use: systemd
+          when: current_hostname.stdout != features.system.hostname
+
+        - name: Remove old hostname from /etc/hosts
+          ansible.builtin.lineinfile:
+            path: /etc/hosts
+            regexp: '^127\.0\.1\.1\s+{{ current_hostname.stdout }}(\s|$)'
+            state: absent
+          when: current_hostname.stdout != features.system.hostname
+
+        - name: Update /etc/hosts with new hostname
+          ansible.builtin.lineinfile:
+            path: /etc/hosts
+            regexp: '^127\.0\.1\.1\s+'
+            line: "127.0.1.1\t{{ features.system.hostname }}"
+            state: present

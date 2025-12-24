@@ -1,0 +1,155 @@
+---
+# Pre-flight validation playbook for PRISM
+# Run this before executing the main playbook to verify prerequisites
+# Usage: ansible-playbook -i inventory.ini validate.yml -e "@config.yml"
+
+- name: Validate PRISM prerequisites and configuration
+  hosts: all
+  gather_facts: true
+  become: false
+  
+  tasks:
+    - name: Check Ansible version
+      ansible.builtin.assert:
+        that:
+          - ansible_version.full is version('2.12', '>=')
+        fail_msg: "Ansible 2.12 or higher is required. Current version: {{ ansible_version.full }}"
+        success_msg: "Ansible version {{ ansible_version.full }} is compatible"
+      delegate_to: localhost
+      run_once: true
+
+    - name: Verify config.yml is loaded
+      ansible.builtin.assert:
+        that:
+          - features is defined
+        fail_msg: "Configuration file not loaded. Run with: -e '@config.yml'"
+        success_msg: "Configuration file loaded successfully"
+      run_once: true
+
+    - name: Check OS distribution
+      ansible.builtin.assert:
+        that:
+          - ansible_facts['os_family'] == "Debian"
+          - ansible_facts['distribution'] == "Debian"
+        fail_msg: |
+          Unsupported OS: {{ ansible_facts['distribution'] }} {{ ansible_facts['distribution_version'] }}
+          PRISM is tested on Debian 12
+        success_msg: "OS is {{ ansible_facts['distribution'] }} {{ ansible_facts['distribution_version'] }}"
+
+    - name: Check Python 3 availability
+      ansible.builtin.command: python3 --version
+      register: python_version
+      changed_when: false
+      failed_when: python_version.rc != 0
+
+    - name: Display Python version
+      ansible.builtin.debug:
+        msg: "Python version: {{ python_version.stdout }}"
+
+    - name: Check SSH connectivity
+      ansible.builtin.ping:
+
+    - name: Verify privilege escalation
+      ansible.builtin.command: id -u
+      register: user_id
+      become: true
+      changed_when: false
+
+    - name: Confirm root privileges
+      ansible.builtin.assert:
+        that:
+          - user_id.stdout == "0"
+        fail_msg: "Cannot escalate privileges to root"
+        success_msg: "Privilege escalation working correctly"
+
+    - name: Check for required system commands
+      ansible.builtin.command: "which {{ item }}"
+      register: command_check
+      changed_when: false
+      failed_when: false
+      loop:
+        - apt
+        - systemctl
+        - update-grub
+        - sysctl
+      become: true
+
+    - name: Validate GRUB password hash format (if enabled)
+      ansible.builtin.assert:
+        that:
+          - features.grub_password.hash is defined
+          - features.grub_password.hash | length > 0
+          - features.grub_password.hash is match('^grub\\.pbkdf2\\.sha512\\.')
+        fail_msg: |
+          Invalid GRUB password hash format.
+          Generate with: grub-mkpasswd-pbkdf2
+        success_msg: "GRUB password hash format is valid"
+      when:
+        - features.grub_password.enabled | default(false)
+      run_once: true
+
+    - name: Validate SSH port configuration
+      ansible.builtin.assert:
+        that:
+          - features.ssh_hardening.port is defined
+          - features.ssh_hardening.port | int > 0
+          - features.ssh_hardening.port | int < 65536
+        fail_msg: "Invalid SSH port: {{ features.ssh_hardening.port }}"
+        success_msg: "SSH port {{ features.ssh_hardening.port }} is valid"
+      when:
+        - features.ssh_hardening.enabled | default(false)
+        - features.ssh_hardening.port is defined
+      run_once: true
+
+    - name: Warn about SSH port change
+      ansible.builtin.debug:
+        msg: |
+          WARNING: SSH port will be changed to {{ features.ssh_hardening.port }}
+          Ensure firewall allows this port before proceeding!
+      when:
+        - features.ssh_hardening.enabled | default(false)
+        - features.ssh_hardening.port is defined
+        - features.ssh_hardening.port != 22
+      run_once: true
+
+    - name: Validate firewall configuration
+      ansible.builtin.assert:
+        that:
+          - features.firewall.default_target in ['DROP', 'ACCEPT', 'REJECT', 'default']
+        fail_msg: "Invalid firewall default_target: {{ features.firewall.default_target }}"
+        success_msg: "Firewall configuration is valid"
+      when:
+        - features.firewall.enabled | default(false)
+      run_once: true
+
+    - name: Check available disk space
+      ansible.builtin.shell: df -h / | tail -1 | awk '{print $5}' | sed 's/%//'
+      register: disk_usage
+      changed_when: false
+      become: true
+
+    - name: Warn if disk space is low
+      ansible.builtin.debug:
+        msg: "WARNING: Disk usage is at {{ disk_usage.stdout }}%"
+      when: disk_usage.stdout | int > 80
+
+    - name: Check available memory
+      ansible.builtin.command: free -m
+      register: memory_info
+      changed_when: false
+
+    - name: Display system resources
+      ansible.builtin.debug:
+        msg:
+          - "Disk usage: {{ disk_usage.stdout }}%"
+          - "Memory info:"
+          - "{{ memory_info.stdout_lines }}"
+
+    - name: Validation summary
+      ansible.builtin.debug:
+        msg:
+          - "===== PRISM Pre-flight Validation Complete ====="
+          - "Target: {{ inventory_hostname }}"
+          - "OS: {{ ansible_facts['distribution'] }} {{ ansible_facts['distribution_version'] }}"
+          - "Python: {{ python_version.stdout }}"
+          - "All prerequisites met. Ready to execute PRISM hardening."

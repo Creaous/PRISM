@@ -1,0 +1,19 @@
+---
+# Common default values used across PRISM playbooks
+# These values promote consistency and reduce duplication
+
+# File ownership and permissions
+default_file_mode: '0644'
+default_secure_mode: '0640'
+default_restricted_mode: '0600'
+default_root_owner: root
+default_root_group: root
+
+# Package installation
+package_update_cache: true
+package_retry_count: 3
+package_retry_delay: 5
+
+# Backup settings
+backup_enabled: true
+backup_suffix: ".backup"

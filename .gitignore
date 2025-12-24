@@ -1,0 +1,50 @@
+# Python environment
+.venv/
+
+# Configuration files with sensitive data
+config.yml
+
+# Inventory files (may contain IPs)
+inventory.ini
+
+# Ansible temporary files
+*.retry
+.ansible/
+ansible.log
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual environments
+venv/
+ENV/
+env/
+
+# IDE specific files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Log files
+*.log
+
+# Backup files
+*.backup
+*.bak
+*.tmp
+
+# Test outputs
+test_results/
+reports/
+
+# SSH keys
+*.pem
+*.key
+id_rsa*

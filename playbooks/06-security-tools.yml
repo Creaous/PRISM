@@ -1,0 +1,68 @@
+- name: Install security and system tools (Wazuh-compatible)
+  hosts: all
+  become: true
+  handlers:
+    - name: Import shared handlers
+      ansible.builtin.import_tasks: handlers/main.yml
+  tasks:
+    - name: Install essential security packages
+      ansible.builtin.include_tasks: tasks/install_packages.yml
+      vars:
+        package_list:
+          - debsums
+          - apt-show-versions
+          - unattended-upgrades
+          - fail2ban
+      when: features.security_tools.enabled | default(true)
+
+    - name: Configure unattended-upgrades
+      ansible.builtin.template:
+        src: templates/50unattended-upgrades.j2
+        dest: /etc/apt/apt.conf.d/50unattended-upgrades
+        mode: "{{ default_file_mode }}"
+        owner: "{{ default_root_owner }}"
+        group: "{{ default_root_group }}"
+      when: features.security_tools.unattended_upgrades | default(true)
+
+    - name: Enable automatic updates
+      ansible.builtin.template:
+        src: templates/20auto-upgrades.j2
+        dest: /etc/apt/apt.conf.d/20auto-upgrades
+        mode: "{{ default_file_mode }}"
+        owner: "{{ default_root_owner }}"
+        group: "{{ default_root_group }}"
+      when: features.security_tools.unattended_upgrades | default(true)
+
+    - name: Configure debsums for package integrity checking
+      ansible.builtin.template:
+        src: templates/debsums.j2
+        dest: /etc/default/debsums
+        mode: "{{ default_file_mode }}"
+        owner: "{{ default_root_owner }}"
+        group: "{{ default_root_group }}"
+      when: features.security_tools.debsums_check | default(true)
+
+    - name: Configure fail2ban jail for SSH
+      ansible.builtin.copy:
+        content: |
+          [sshd]
+          enabled = true
+          port = {{ features.ssh_hardening.port | default('ssh') }}
+          filter = sshd
+          backend = systemd
+          maxretry = {{ features.security_tools.fail2ban_maxretry | default(3) }}
+          bantime = {{ features.security_tools.fail2ban_bantime | default(3600) }}
+          findtime = {{ features.security_tools.fail2ban_findtime | default(600) }}
+        dest: /etc/fail2ban/jail.d/sshd.conf
+        mode: "{{ default_file_mode }}"
+        owner: "{{ default_root_owner }}"
+        group: "{{ default_root_group }}"
+      when: features.security_tools.fail2ban_enabled | default(true)
+      notify: Restart fail2ban
+
+    - name: Ensure fail2ban is enabled and started
+      ansible.builtin.systemd:
+        name: fail2ban
+        enabled: true
+        state: started
+      when: features.security_tools.fail2ban_enabled | default(true)

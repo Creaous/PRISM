@@ -1,0 +1,182 @@
+---
+- name: User management and configuration
+  hosts: all
+  become: true
+  tasks:
+    - name: Ensure sudo group exists
+      ansible.builtin.group:
+        name: sudo
+        state: present
+      when: features.user_management.enabled | default(false)
+
+    - name: Create system users
+      ansible.builtin.user:
+        name: "{{ item.name }}"
+        comment: "{{ item.comment | default(omit) }}"
+        groups: "{{ item.groups | default([]) }}"
+        append: true
+        shell: "{{ item.shell | default('/bin/bash') }}"
+        create_home: true
+        state: present
+      loop: "{{ features.user_management.users | default([]) }}"
+      when:
+        - features.user_management.enabled | default(false)
+        - features.user_management.users is defined
+        - features.user_management.users | length > 0
+      no_log: true
+
+    - name: Set passwords for users
+      ansible.builtin.user:
+        name: "{{ item.name }}"
+        password: "{{ item.password }}"
+        update_password: always
+      loop: "{{ features.user_management.users | default([]) }}"
+      when:
+        - features.user_management.enabled | default(false)
+        - features.user_management.users is defined
+        - item.password is defined
+        - item.password | length > 0
+      no_log: true
+
+    - name: Set SSH authorized keys for users
+      ansible.posix.authorized_key:
+        user: "{{ item.name }}"
+        key: "{{ item.ssh_key }}"
+        state: present
+        exclusive: "{{ item.ssh_key_exclusive | default(false) }}"
+      loop: "{{ features.user_management.users | default([]) }}"
+      when:
+        - features.user_management.enabled | default(false)
+        - features.user_management.users is defined
+        - item.ssh_key is defined
+        - item.ssh_key | length > 0
+
+    - name: Configure password expiry for managed users
+      ansible.builtin.user:
+        name: "{{ item.name }}"
+        password_expire_max: "{{ item.password_max_days | default(features.auth_hardening.pass_max_days | default(90)) }}"
+        password_expire_min: "{{ item.password_min_days | default(features.auth_hardening.pass_min_days | default(1)) }}"
+      loop: "{{ features.user_management.users | default([]) }}"
+      when:
+        - features.user_management.enabled | default(false)
+        - features.user_management.apply_password_policy | default(true)
+        - features.user_management.users is defined
+        - features.user_management.users | length > 0
+
+    - name: Lock/unlock user accounts
+      ansible.builtin.user:
+        name: "{{ item.name }}"
+        password_lock: "{{ item.locked | default(false) }}"
+      loop: "{{ features.user_management.users | default([]) }}"
+      when:
+        - features.user_management.enabled | default(false)
+        - features.user_management.users is defined
+        - item.locked is defined
+
+    - name: Change root user password
+      ansible.builtin.user:
+        name: root
+        password: "{{ features.user_management.root_password }}"
+        update_password: always
+      when:
+        - features.user_management.enabled | default(false)
+        - features.user_management.root_password is defined
+        - features.user_management.root_password | length > 0
+      no_log: true
+
+    - name: Configure colorful PS1 for root user
+      ansible.builtin.blockinfile:
+        path: /root/.bashrc
+        marker: "# {mark} PRISM COLORFUL PROMPT"
+        block: |
+          # Colorful PS1 prompt configured by PRISM
+          if [ "$color_prompt" = yes ]; then
+            # Red user, yellow host, blue path
+            PS1='${debian_chroot:+($debian_chroot)}\[\033[01;31m\]\u\[\033[00m\]@\[\033[01;33m\]\h\[\033[00m\]:\[\033[01;34m\]\w\[\033[00m\]\$ '
+          else
+            PS1='${debian_chroot:+($debian_chroot)}\u@\h:\w\$ '
+          fi
+        create: true
+        mode: '0644'
+      when:
+        - features.user_management.enabled | default(false)
+        - features.user_management.colorful_prompt | default(true)
+
+    - name: Configure colorful PS1 for managed users
+      ansible.builtin.blockinfile:
+        path: "/home/{{ item.name }}/.bashrc"
+        marker: "# {mark} PRISM COLORFUL PROMPT"
+        block: |
+          # Colorful PS1 prompt configured by PRISM
+          if [ "$color_prompt" = yes ]; then
+            # Green user, yellow host, blue path
+            PS1='${debian_chroot:+($debian_chroot)}\[\033[01;32m\]\u\[\033[00m\]@\[\033[01;33m\]\h\[\033[00m\]:\[\033[01;34m\]\w\[\033[00m\]\$ '
+          else
+            PS1='${debian_chroot:+($debian_chroot)}\u@\h:\w\$ '
+          fi
+        owner: "{{ item.name }}"
+        group: "{{ item.name }}"
+        mode: '0644'
+        create: true
+      loop: "{{ features.user_management.users | default([]) }}"
+      when:
+        - features.user_management.enabled | default(false)
+        - features.user_management.colorful_prompt | default(true)
+        - features.user_management.users is defined
+        - features.user_management.users | length > 0
+
+
+    - name: Ensure color_prompt is enabled in bashrc for root
+      ansible.builtin.lineinfile:
+        path: /root/.bashrc
+        regexp: '^#?\s*color_prompt='
+        line: 'color_prompt=yes'
+        create: true
+        mode: '0644'
+      when:
+        - features.user_management.enabled | default(false)
+        - features.user_management.colorful_prompt | default(true)
+
+    - name: Enable color support in bashrc for root
+      ansible.builtin.lineinfile:
+        path: /root/.bashrc
+        regexp: '^#?\s*force_color_prompt='
+        line: 'force_color_prompt=yes'
+        create: true
+        mode: '0644'
+      when:
+        - features.user_management.enabled | default(false)
+        - features.user_management.colorful_prompt | default(true)
+
+
+    - name: Ensure color_prompt is enabled in bashrc for managed users
+      ansible.builtin.lineinfile:
+        path: "/home/{{ item.name }}/.bashrc"
+        regexp: '^#?\s*color_prompt='
+        line: 'color_prompt=yes'
+        owner: "{{ item.name }}"
+        group: "{{ item.name }}"
+        create: true
+        mode: '0644'
+      loop: "{{ features.user_management.users | default([]) }}"
+      when:
+        - features.user_management.enabled | default(false)
+        - features.user_management.colorful_prompt | default(true)
+        - features.user_management.users is defined
+        - features.user_management.users | length > 0
+
+    - name: Enable color support in bashrc for managed users
+      ansible.builtin.lineinfile:
+        path: "/home/{{ item.name }}/.bashrc"
+        regexp: '^#?\s*force_color_prompt='
+        line: 'force_color_prompt=yes'
+        owner: "{{ item.name }}"
+        group: "{{ item.name }}"
+        create: true
+        mode: '0644'
+      loop: "{{ features.user_management.users | default([]) }}"
+      when:
+        - features.user_management.enabled | default(false)
+        - features.user_management.colorful_prompt | default(true)
+        - features.user_management.users is defined
+        - features.user_management.users | length > 0

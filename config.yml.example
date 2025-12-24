@@ -1,0 +1,161 @@
+features:
+  # System configuration
+  system:
+    hostname: "prism-test-machine"  # Set system hostname (leave empty to skip hostname change)
+ 
+  serial:
+    enabled: true
+    device: ttyS0
+    baudrate: 115200
+  vm_optimizations:
+    enabled: true
+    panic_timeout: 15
+    audit: true
+    blk_mq: true
+    nomodeset: true
+  boot_verbosity:
+    enabled: true
+    loglevel: 3
+    systemd_show_status: 1
+  sysctl_hardening:
+    enabled: true
+    sysrq: 0
+    modules_disabled: false  # WARNING: Set to true to prevent loading kernel modules
+  
+  # Kernel module hardening
+  kernel_modules:
+    enabled: true
+    disable_protocols: true  # Disables dccp, sctp, rds, tipc
+    disable_usb: true       # Set to true to disable USB storage
+    disable_firewire: true   # Disables FireWire storage
+  
+  # SSH hardening
+  ssh_hardening:
+    enabled: true
+    permit_root_login: "yes" # Set to "no" (recommended) or "prohibit-password" in production
+    max_auth_tries: 3
+    max_sessions: 2
+    log_level: "INFO"
+    x11_forwarding: "no"
+    allow_tcp_forwarding: "no"
+    allow_agent_forwarding: "no"
+    tcp_keep_alive: "no"
+    client_alive_count_max: 2
+    client_alive_interval: 300
+    port: 52460
+    limit_users: true  # Restrict SSH access to specific users only
+    allow_root_in_list: true  # Include root in AllowUsers when limit_users is enabled
+    banner: "/etc/issue.net"  # SSH banner file displayed before login
+
+  # Firewall configuration
+  firewall:
+    enabled: true
+    default_zone: "public"
+    default_target: "DROP"  # DROP (block all not explicitly allowed), ACCEPT, or REJECT
+    log_denied: "all"  # Log denied packets: all, unicast, broadcast, multicast, off
+    panic_mode: false  # Emergency: blocks ALL network traffic
+    allowed_services: []  # Example: ["ssh", "http", "https"]
+    allowed_ports:
+      - port: 52460
+        protocol: tcp  # SSH custom port
+    allowed_sources: []  # Example: ["192.168.1.0/24", "10.0.0.0/8"]
+    block_icmp: []  # Example: ["echo-request", "echo-reply"]
+    rich_rules: []  # Example: ["rule family='ipv4' source address='192.168.1.0/24' accept"]
+  
+  # Authentication and password hardening
+  auth_hardening:
+    enabled: true
+    pass_max_days: 90
+    pass_min_days: 1
+    pass_warn_age: 7
+    pass_min_len: 14
+    sha_crypt_min_rounds: 5000
+    umask: "027"
+    pam_minlen: 14
+    pam_dcredit: -1  # Require at least 1 digit
+    pam_ucredit: -1  # Require at least 1 uppercase
+    pam_lcredit: -1  # Require at least 1 lowercase
+    pam_ocredit: -1  # Require at least 1 special char
+    disable_core_dumps: true
+    set_existing_user_expiry: false  # Set to true to apply password expiry to existing users
+    pass_inactive_days: 30  # Days of inactivity before account is disabled
+  
+  # Login banners
+  login_banners:
+    enabled: true
+    issue_content: |
+      -------------------------------------------------------------------------
+        Authorized Access Only - \n
+        Connection source and session data are being recorded.
+        Report security issues: contact@your.domain
+      -------------------------------------------------------------------------
+        \d \t
+      
+    issue_net_content: |
+      -------------------------------------------------------------------------
+        Authorized Access Only
+        Connection source and session data are being recorded.
+        Report security issues: contact@your.domain
+      -------------------------------------------------------------------------
+    remove_motd_files: true
+  
+  # Audit and logging
+  audit_logging:
+    enabled: true
+  
+  # Security tools
+  security_tools:
+    enabled: true
+    unattended_upgrades: true
+    auto_reboot: false
+    auto_reboot_time: "03:00"
+    debsums_check: true  # Enable periodic package integrity checking
+    debsums_report: true  # Send debsums reports
+    fail2ban_enabled: true
+    fail2ban_maxretry: 3  # Number of failed attempts before ban
+    fail2ban_bantime: 3600  # Ban duration in seconds (1 hour)
+    fail2ban_findtime: 600  # Time window for counting failed attempts (10 minutes)
+  
+  # GRUB menu configuration
+  grub_menu:
+    timeout: 0  # GRUB menu timeout in seconds (set to 0 to skip menu, -1 to wait indefinitely)
+    timeout_style: "hidden"  # "menu" (show menu), "hidden" (hide menu unless Shift/Esc pressed), or "countdown" (show countdown)
+  
+  # GRUB password protection (BOOT-5122)
+  grub_password:
+    enabled: true  # Set to true after generating password hash
+    username: "prism-grub"
+    hash: "grub.pbkdf2.sha512.10000.A3ED484D9F29D6551FD2B781DDBD02D4715D48A17A3B015E88D30EAF246ED4899B7441F725585FD363E3529A03055991188CA8A8DC41E519D2D38CF8E0D6BD67.0DF5657FC8EC8CAE38F3A37351A7AA918493F546B21A4347948C6C647CD0B66B6EB794B3CB2DA549C7CC2280A2ED9B2B91E795B75F2866B3D5547F1F70377640" # Use grub-mkpasswd-pbkdf2 | Default: grub-p@ssw0rd
+    protect_all_entries: false  # Require password for all boot entries
+
+  # User management
+  user_management:
+    enabled: true
+    apply_password_policy: true  # Apply password expiry settings to managed users
+    colorful_prompt: true  # Enable colorful PS1 prompt for all users
+    root_password: "$6$3570HfpwJO.GWZmZ$jnOpvzsdJNbk8BcmPtS/EC2WhwD3uy/IkiXy6wIwS15mzumQJIOhgQjWhnVqX0XFdORpswarEaz5Q9pMJsJJ./"  # Hashed password for root user (use: mkpasswd --method=sha-512) | Default: r00t
+    users:
+      - name: prism-operator
+        comment: "PRISM System Operator"
+        groups:
+          - sudo
+        shell: /bin/bash
+        ssh_key: ""  # Add your SSH public key here
+        ssh_key_exclusive: false  # Set to true to remove all other keys
+        password: "$6$5vlx4FMFDc2bvhDo$Njowty0.LACQrrzijEnjWnEv4sSd1sm1u3kcRp5Or7qN3JAuuXxw019cRbBl229OET8izA5f7zcDTnld.GXbN1"  # Hashed password (use: mkpasswd --method=sha-512) | Default: 0p3r@t0r
+        locked: false  # Set to true to lock the account
+        allow_ssh: true  # Allow this user to connect via SSH
+      # Add more users as needed:
+      # - name: admin-user
+      #   comment: "Administrator Account"
+      #   groups:
+      #     - sudo
+      #   shell: /bin/bash
+      #   ssh_key: "ssh-rsa AAAA..."
+      #   password: ""  # Hashed password
+      #   locked: false
+      #   allow_ssh: true
+
+  # Dynamic MOTD (Message of the Day)
+  dynamic_motd:
+    enabled: true  # Set to true to enable dynamic MOTD with system information

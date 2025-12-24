@@ -1,0 +1,138 @@
+---
+- name: Apply kernel and system hardening
+  hosts: all
+  become: true
+  handlers:
+    - name: Import shared handlers
+      ansible.builtin.import_tasks: handlers/main.yml
+
+  tasks:
+    - name: Validate sysctl hardening configuration
+      ansible.builtin.assert:
+        that:
+          - features.sysctl_hardening.sysrq is defined
+          - features.sysctl_hardening.sysrq | int >= 0
+          - features.sysctl_hardening.sysrq | int <= 1
+        fail_msg: "Invalid sysctl_hardening.sysrq value. Must be 0 or 1."
+        success_msg: "Sysctl hardening configuration is valid"
+      when: features.sysctl_hardening.enabled | default(false)
+
+    - name: Warning for kernel module lockdown
+      ansible.builtin.debug:
+        msg: |
+          WARNING: kernel.modules_disabled is enabled!
+          This will PREVENT loading any new kernel modules until reboot.
+          Ensure all required modules are loaded before applying this setting.
+      when:
+        - features.sysctl_hardening.enabled | default(false)
+        - features.sysctl_hardening.modules_disabled | default(false)
+
+    # Sysctl hardening
+    - name: Ensure sysctl.d directory exists
+      ansible.builtin.file:
+        path: /etc/sysctl.d
+        state: directory
+        mode: '0755'
+        owner: "{{ default_root_owner }}"
+        group: "{{ default_root_group }}"
+
+    - name: Deploy sysctl hardening configuration
+      ansible.builtin.copy:
+        dest: /etc/sysctl.d/99-hardening.conf
+        mode: "{{ default_file_mode }}"
+        owner: "{{ default_root_owner }}"
+        group: "{{ default_root_group }}"
+        content: |
+          # --- System & FS Hardening ---
+          dev.tty.ldisc_autoload = 0
+          fs.protected_fifos = 2
+          kernel.core_uses_pid = 1
+          kernel.kptr_restrict = 2
+          kernel.sysrq = {{ features.sysctl_hardening.sysrq | default(0) }}
+          kernel.unprivileged_bpf_disabled = 1
+          kernel.yama.ptrace_scope = 1
+
+          # --- eBPF Hardening ---
+          net.core.bpf_jit_harden = 2
+
+          # --- Network Hardening ---
+          net.ipv4.conf.all.log_martians = 1
+          net.ipv4.conf.default.log_martians = 1
+          net.ipv4.conf.all.rp_filter = 1
+          net.ipv4.conf.all.accept_redirects = 0
+          net.ipv4.conf.default.accept_redirects = 0
+          net.ipv4.conf.all.send_redirects = 0
+          net.ipv4.conf.default.accept_source_route = 0
+          net.ipv6.conf.all.accept_redirects = 0
+          net.ipv6.conf.default.accept_redirects = 0
+
+          {% if features.sysctl_hardening.modules_disabled | default(false) %}
+          # --- MODULE LOCKDOWN (WARNING: This prevents loading kernel modules) ---
+          kernel.modules_disabled = 1
+          {% endif %}
+      when: features.sysctl_hardening.enabled | default(false)
+      notify: Apply sysctl settings
+
+    # Kernel module hardening
+    - name: Create modprobe.d directory
+      ansible.builtin.file:
+        path: /etc/modprobe.d
+        state: directory
+        mode: '0755'
+        owner: "{{ default_root_owner }}"
+        group: "{{ default_root_group }}"
+
+    - name: Disable unused network protocols
+      ansible.builtin.copy:
+        dest: /etc/modprobe.d/disable-protocols.conf
+        mode: "{{ default_file_mode }}"
+        owner: "{{ default_root_owner }}"
+        group: "{{ default_root_group }}"
+        content: |
+          # Disable DCCP (Datagram Congestion Control Protocol)
+          install dccp /bin/true
+          blacklist dccp
+
+          # Disable SCTP (Stream Control Transmission Protocol)
+          install sctp /bin/true
+          blacklist sctp
+
+          # Disable RDS (Reliable Datagram Sockets)
+          install rds /bin/true
+          blacklist rds
+
+          # Disable TIPC (Transparent Inter-Process Communication)
+          install tipc /bin/true
+          blacklist tipc
+      when: features.kernel_modules.disable_protocols | default(true)
+      notify: Update initramfs
+
+    - name: Disable USB storage
+      ansible.builtin.copy:
+        dest: /etc/modprobe.d/disable-usb-storage.conf
+        mode: "{{ default_file_mode }}"
+        owner: "{{ default_root_owner }}"
+        group: "{{ default_root_group }}"
+        content: |
+          # Disable USB storage to prevent unauthorized data theft
+          install usb-storage /bin/true
+          blacklist usb-storage
+      when: features.kernel_modules.disable_usb | default(false)
+      notify: Update initramfs
+
+    - name: Disable FireWire storage
+      ansible.builtin.copy:
+        dest: /etc/modprobe.d/disable-firewire.conf
+        mode: "{{ default_file_mode }}"
+        owner: "{{ default_root_owner }}"
+        group: "{{ default_root_group }}"
+        content: |
+          # Disable FireWire storage to prevent unauthorized data theft
+          install firewire-core /bin/true
+          blacklist firewire-core
+          install firewire-ohci /bin/true
+          blacklist firewire-ohci
+          install firewire-sbp2 /bin/true
+          blacklist firewire-sbp2
+      when: features.kernel_modules.disable_firewire | default(true)
+      notify: Update initramfs

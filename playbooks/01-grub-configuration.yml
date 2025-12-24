@@ -1,0 +1,157 @@
+---
+- name: Configure GRUB bootloader and boot parameters
+  hosts: all
+  become: true
+  handlers:
+    - name: Import shared handlers
+      ansible.builtin.import_tasks: handlers/main.yml
+
+  tasks:
+    - name: Ensure getty is enabled on serial console
+      ansible.builtin.systemd:
+        name: "serial-getty@{{ features.serial.device }}.service"
+        enabled: true
+        state: started
+        masked: false
+      when: features.serial.enabled | default(false)
+
+    - name: Read current GRUB configuration
+      ansible.builtin.slurp:
+        path: /etc/default/grub
+      register: grub_current
+
+    - name: Extract current GRUB_CMDLINE_LINUX
+      ansible.builtin.set_fact:
+        current_cmdline: >-
+          {{ (grub_current.content | b64decode |
+              regex_search('GRUB_CMDLINE_LINUX="([^"]*)"', '\1')) |
+              default([''], true) | first }}
+
+    - name: Build desired GRUB parameters
+      ansible.builtin.set_fact:
+        grub_params: >-
+          {%- set params = [] -%}
+          {%- if features.serial.enabled | default(false) -%}
+            {%- set _ = params.append('console=tty0') -%}
+            {%- set device = features.serial.device | default('ttyS0') -%}
+            {%- set baudrate = features.serial.baudrate | default(115200) | string -%}
+            {%- set _ = params.append('console=' + device + ',' + baudrate) -%}
+            {%- set _ = params.append('earlyprintk=' + device + ',' + baudrate) -%}
+          {%- endif -%}
+          {%- if features.vm_optimizations.enabled | default(false) -%}
+            {%- set _ = params.append('consoleblank=0') -%}
+            {%- set _ = params.append('threadirqs') -%}
+            {%- set _ = params.append('panic=' + (features.vm_optimizations.panic_timeout | default(15) | string)) -%}
+            {%- if features.vm_optimizations.audit | default(true) -%}
+              {%- set _ = params.append('audit=1') -%}
+            {%- endif -%}
+            {%- if features.vm_optimizations.blk_mq | default(true) -%}
+              {%- set _ = params.append('scsi_mod.use_blk_mq=y') -%}
+            {%- endif -%}
+            {%- if features.vm_optimizations.nomodeset | default(true) -%}
+              {%- set _ = params.append('nomodeset') -%}
+            {%- endif -%}
+          {%- endif -%}
+          {%- if features.boot_verbosity.enabled | default(false) -%}
+            {%- set _ = params.append('loglevel=' + (features.boot_verbosity.loglevel | default(3) | string)) -%}
+            {%- set _ = params.append('systemd.show_status=' + (features.boot_verbosity.systemd_show_status | default(1) | string)) -%}
+          {%- endif -%}
+          {{ params | unique | join(' ') }}
+
+    - name: Remove quiet and splash from GRUB_CMDLINE_LINUX_DEFAULT
+      ansible.builtin.lineinfile:
+        path: /etc/default/grub
+        regexp: '^GRUB_CMDLINE_LINUX_DEFAULT='
+        line: 'GRUB_CMDLINE_LINUX_DEFAULT=""'
+      when: features.boot_verbosity.enabled | default(false)
+      notify: Update GRUB
+
+    - name: Update GRUB_CMDLINE_LINUX
+      ansible.builtin.lineinfile:
+        path: /etc/default/grub
+        regexp: '^GRUB_CMDLINE_LINUX='
+        line: 'GRUB_CMDLINE_LINUX="{{ grub_params }}"'
+      when: grub_params | length > 0
+      notify: Update GRUB
+
+    - name: Configure GRUB timeout
+      ansible.builtin.lineinfile:
+        path: /etc/default/grub
+        regexp: '^GRUB_TIMEOUT='
+        line: 'GRUB_TIMEOUT={{ features.grub_menu.timeout | default(5) }}'
+      when: features.grub_menu.timeout is defined
+      notify: Update GRUB
+
+    - name: Configure GRUB timeout style
+      ansible.builtin.lineinfile:
+        path: /etc/default/grub
+        regexp: '^GRUB_TIMEOUT_STYLE='
+        line: 'GRUB_TIMEOUT_STYLE={{ features.grub_menu.timeout_style | default("menu") }}'
+      when: features.grub_menu.timeout_style is defined
+      notify: Update GRUB
+
+    - name: Check if GRUB password is already configured
+      ansible.builtin.command: grep -q "^password_pbkdf2" /etc/grub.d/40_custom
+      register: grub_password_check
+      failed_when: false
+      changed_when: false
+      when: features.grub_password.enabled | default(false)
+
+    - name: Display GRUB password setup instructions
+      ansible.builtin.debug:
+        msg: |
+          To set a GRUB password:
+          1. Generate hash: grub-mkpasswd-pbkdf2
+          2. Set features.grub_password.hash in config.yml
+          3. Re-run this playbook
+      when:
+        - features.grub_password.enabled | default(false)
+        - grub_password_check.rc != 0
+        - features.grub_password.hash is not defined
+
+    - name: Configure GRUB password protection
+      ansible.builtin.blockinfile:
+        path: /etc/grub.d/40_custom
+        marker: "# {mark} ANSIBLE MANAGED GRUB PASSWORD"
+        block: |
+          set superusers="{{ features.grub_password.username | default('root') }}"
+          password_pbkdf2 {{ features.grub_password.username | default('root') }} {{ features.grub_password.hash }}
+        create: false
+      when:
+        - features.grub_password.enabled | default(false)
+        - features.grub_password.hash is defined
+      notify: Update GRUB
+
+    - name: Make boot entries require authentication
+      ansible.builtin.lineinfile:
+        path: /etc/grub.d/10_linux
+        regexp: '^CLASS='
+        line: 'CLASS="--class gnu-linux --class gnu --class os --users """'
+        backrefs: false
+      when:
+        - features.grub_password.enabled | default(false)
+        - features.grub_password.hash is defined
+        - features.grub_password.protect_all_entries | default(true)
+      notify: Update GRUB
+
+    - name: Allow default boot entry without password
+      ansible.builtin.replace:
+        path: /etc/grub.d/10_linux
+        regexp: '(menuentry .*)(\$menuentry_id_option.*)'
+        replace: '\1--unrestricted \2'
+      when:
+        - features.grub_password.enabled | default(false)
+        - features.grub_password.hash is defined
+        - not (features.grub_password.protect_all_entries | default(true))
+      notify: Update GRUB
+
+    - name: Protect recovery and other non-default entries
+      ansible.builtin.replace:
+        path: /etc/grub.d/10_linux
+        regexp: '(menuentry .*(recovery|Advanced options).*)(\$menuentry_id_option.*)'
+        replace: '\1--users "" \3'
+      when:
+        - features.grub_password.enabled | default(false)
+        - features.grub_password.hash is defined
+        - not (features.grub_password.protect_all_entries | default(true))
+      notify: Update GRUB

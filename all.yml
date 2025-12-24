@@ -1,0 +1,58 @@
+---
+- name: Run requirements playbook
+  ansible.builtin.import_playbook: playbooks/00-requirements.yml
+  tags: ['always', 'requirements']
+
+- name: Configure GRUB bootloader and boot parameters
+  ansible.builtin.import_playbook: playbooks/01-grub-configuration.yml
+  when: >
+    (features.serial.enabled | default(false)) or
+    (features.vm_optimizations.enabled | default(false)) or
+    (features.boot_verbosity.enabled | default(false)) or
+    (features.grub_password.enabled | default(false))
+  tags: ['grub', 'boot']
+
+- name: Apply kernel and system hardening
+  ansible.builtin.import_playbook: playbooks/02-system-hardening.yml
+  when: >
+    (features.sysctl_hardening.enabled | default(false)) or
+    (features.kernel_modules.enabled | default(false))
+  tags: ['hardening', 'kernel', 'sysctl']
+
+- name: Configure authentication, SSH, and access control
+  ansible.builtin.import_playbook: playbooks/03-authentication-hardening.yml
+  when: >
+    (features.ssh_hardening.enabled | default(false)) or
+    (features.auth_hardening.enabled | default(false)) or
+    (features.login_banners.enabled | default(false))
+  tags: ['authentication', 'ssh', 'access']
+
+- name: Configure firewall
+  ansible.builtin.import_playbook: playbooks/04-firewall.yml
+  when: features.firewall.enabled | default(false)
+  tags: ['firewall', 'network']
+
+- name: Configure auditing and logging
+  ansible.builtin.import_playbook: playbooks/05-audit-logging.yml
+  when: features.audit_logging.enabled | default(false)
+  tags: ['audit', 'logging', 'monitoring']
+
+- name: Install security and system tools
+  ansible.builtin.import_playbook: playbooks/06-security-tools.yml
+  when: features.security_tools.enabled | default(false)
+  tags: ['security-tools', 'tools']
+
+- name: Manage system users
+  ansible.builtin.import_playbook: playbooks/07-user-management.yml
+  when: features.user_management.enabled | default(false)
+  tags: ['users', 'accounts']
+
+- name: Setup dynamic MOTD
+  ansible.builtin.import_playbook: playbooks/08-dynamic-motd.yml
+  when: features.dynamic_motd.enabled | default(false)
+  tags: ['motd', 'ui']
+
+- name: Configure networking
+  ansible.builtin.import_playbook: playbooks/09-network-configuration.yml
+  # when: features.networking.enabled | default(false)
+  tags: ['network', 'hostname']

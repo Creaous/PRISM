@@ -1,0 +1,12 @@
+- name: Set up requirements
+  hosts: all
+  become: true
+  tasks:
+    - name: Install required system packages
+      ansible.builtin.include_tasks: tasks/install_packages.yml
+      vars:
+        package_list:
+          - git
+          - curl
+          - wget
+          - python3-firewall  # Required for ansible.posix.firewalld module

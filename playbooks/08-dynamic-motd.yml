@@ -1,0 +1,57 @@
+---
+- name: Setup dynamic MOTD
+  hosts: all
+  become: true
+  handlers:
+    - name: Import shared handlers
+      ansible.builtin.import_tasks: handlers/main.yml
+  tasks:
+    - name: Install dynamic MOTD dependencies
+      ansible.builtin.include_tasks: tasks/install_packages.yml
+      vars:
+        package_list:
+          - figlet
+          - lsb-release
+          - util-linux
+          - python3-utmp
+          - bc
+          - git
+      when: features.dynamic_motd.enabled | default(false)
+
+    - name: Clone dynamic-motd repository
+      ansible.builtin.git:
+        repo: 'https://github.com/Creaous/dynamic-motd.git'
+        dest: /tmp/dynamic-motd
+        version: main
+        depth: 1
+      when: features.dynamic_motd.enabled | default(false)
+
+    - name: Copy update-motd.d directory to /etc
+      ansible.builtin.copy:
+        src: /tmp/dynamic-motd/update-motd.d/
+        dest: /etc/update-motd.d/
+        remote_src: true
+        mode: '0755'
+        owner: root
+        group: root
+      when: features.dynamic_motd.enabled | default(false)
+
+    - name: Remove static /etc/motd file
+      ansible.builtin.file:
+        path: /etc/motd
+        state: absent
+      when: features.dynamic_motd.enabled | default(false)
+
+    - name: Create symlink from /var/run/motd to /etc/motd
+      ansible.builtin.file:
+        src: /var/run/motd
+        dest: /etc/motd
+        state: link
+        force: true
+      when: features.dynamic_motd.enabled | default(false)
+
+    - name: Clean up dynamic-motd repository
+      ansible.builtin.file:
+        path: /tmp/dynamic-motd
+        state: absent
+      when: features.dynamic_motd.enabled | default(false)

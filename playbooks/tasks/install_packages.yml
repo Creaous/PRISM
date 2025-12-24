@@ -1,0 +1,15 @@
+---
+# Reusable task to install packages with retry logic
+# Usage: include_tasks with vars: package_list (array of package names)
+
+- name: "Install {{ package_list | join(', ') }}"
+  ansible.builtin.apt:
+    name: "{{ package_list }}"
+    state: present
+    update_cache: "{{ update_cache | default(true) }}"
+    cache_valid_time: "{{ cache_valid_time | default(3600) }}"
+  when: ansible_facts['os_family'] == "Debian"
+  retries: "{{ package_retry_count | default(3) }}"
+  delay: "{{ package_retry_delay | default(5) }}"
+  register: package_install_result
+  until: package_install_result is success
