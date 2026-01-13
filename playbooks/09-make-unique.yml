@@ -14,7 +14,7 @@
   tasks:
     - name: Set APT proxy
       ansible.builtin.copy:
-        dest: /etc/apt/apt.conf.d/00aptproxy
+        dest: /etc/apt/apt.conf
         content: "Acquire::http::Proxy \"{{ features.apt_proxy }}\";"
         owner: root
         group: root
