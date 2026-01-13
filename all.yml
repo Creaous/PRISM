@@ -52,7 +52,9 @@
   when: features.dynamic_motd.enabled | default(false)
   tags: ['motd', 'ui']
 
+- name: Make the system unique
+  ansible.builtin.import_playbook: playbooks/09-make-unique.yml
+
 - name: Configure networking
-  ansible.builtin.import_playbook: playbooks/09-network-configuration.yml
-  # when: features.networking.enabled | default(false)
+  ansible.builtin.import_playbook: playbooks/10-network-configuration.yml
   tags: ['network', 'hostname']

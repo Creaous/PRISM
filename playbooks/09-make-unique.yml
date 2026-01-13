@@ -1,0 +1,63 @@
+- name: Make the system unique
+  hosts: all
+  become: true
+  vars:
+    timezone: "{{ features.system.timezone | default('Australia/Adelaide') }}"
+    backports_repo: |
+      deb http://ftp.au.debian.org/debian bookworm-backports main
+      deb-src http://ftp.au.debian.org/debian bookworm-backports main
+  handlers:
+    - name: Restart NetworkManager
+      ansible.builtin.systemd:
+        name: NetworkManager
+        state: restarted
+  tasks:
+    - name: Set APT proxy
+      ansible.builtin.copy:
+        dest: /etc/apt/apt.conf.d/00aptproxy
+        content: "Acquire::http::Proxy \"{{ features.apt_proxy }}\";"
+        owner: root
+        group: root
+        mode: '0644'
+      when: features.apt_proxy is defined and features.apt_proxy | length > 0
+
+    - name: Reset machine-id
+      ansible.builtin.command: systemd-machine-id-setup
+      args:
+        creates: /etc/machine-id
+
+    - name: Remove old SSH host keys
+      ansible.builtin.file:
+        path: /etc/ssh/ssh_host_*
+        state: absent
+
+    - name: Reconfigure openssh-server
+      ansible.builtin.command: dpkg-reconfigure openssh-server
+      changed_when: false
+
+    - name: Generate missing SSH keys
+      ansible.builtin.command: ssh-keygen -A
+      changed_when: false
+
+    - name: Set timezone
+      community.general.timezone:
+        name: "{{ timezone }}"
+
+    - name: Add backports repository
+      ansible.builtin.copy:
+        dest: /etc/apt/sources.list.d/backports.list
+        content: "{{ backports_repo }}"
+        owner: root
+        group: root
+        mode: '0644'
+      when: ansible_facts['distribution_version'] == 'bookworm'
+
+    - name: Set sudo group to NOPASSWD in sudoers
+      ansible.builtin.lineinfile:
+        path: /etc/sudoers.d/99-sudo-nopasswd
+        create: true
+        owner: root
+        group: root
+        mode: '0440'
+        line: '%sudo ALL=(ALL:ALL) NOPASSWD:ALL'
+        validate: '/usr/sbin/visudo -cf %s'

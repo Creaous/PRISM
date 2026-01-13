@@ -1,0 +1,121 @@
+- name: Configure networking
+  hosts: all
+  become: true
+  handlers:
+    - name: Restart NetworkManager
+      ansible.builtin.systemd:
+        name: NetworkManager
+        state: restarted
+  tasks:
+    - name: Configure hostname
+      when:
+        - features.system.hostname is defined
+        - features.system.hostname | length > 0
+      block:
+        - name: Get current hostname
+          ansible.builtin.command: hostname
+          register: current_hostname
+          changed_when: false
+
+        - name: Set hostname
+          ansible.builtin.hostname:
+            name: "{{ features.system.hostname }}"
+            use: systemd
+          when: current_hostname.stdout != features.system.hostname
+
+        - name: Remove old hostname from /etc/hosts
+          ansible.builtin.lineinfile:
+            path: /etc/hosts
+            regexp: '^127\.0\.1\.1\s+{{ current_hostname.stdout }}(\s|$)'
+            state: absent
+          when: current_hostname.stdout != features.system.hostname
+
+        - name: Update /etc/hosts with new hostname
+          ansible.builtin.lineinfile:
+            path: /etc/hosts
+            regexp: '^127\.0\.1\.1\s+'
+            line: "127.0.1.1\t{{ features.system.hostname }}"
+            state: present
+
+    - name: Configure networking
+      when:
+        - features.networking is defined
+        - features.networking | length > 0
+      block:
+        - name: Ensure network-manager is installed
+          ansible.builtin.apt:
+            name: network-manager
+            state: present
+            update_cache: true
+
+        - name: Set NetworkManager managed=true
+          ansible.builtin.lineinfile:
+            path: /etc/NetworkManager/NetworkManager.conf
+            regexp: '^managed=false'
+            line: 'managed=true'
+          notify: Restart NetworkManager
+
+        - name: Set static ethernet name from ifname
+          ansible.builtin.set_fact:
+            static_eth_name: "static-{{ features.networking.ifname }}"
+          when:
+            - features.networking is defined
+            - features.networking.ifname is defined
+
+        - name: Add static ethernet connection
+          ansible.builtin.command: >
+            nmcli con add type ethernet con-name {{ static_eth_name }}
+            ifname {{ features.networking.ifname }} ip4 {{ features.networking.ip4 }} gw4 {{ features.networking.gw4 }}
+          args:
+            creates: "/etc/NetworkManager/system-connections/{{ static_eth_name }}.nmconnection"
+          when:
+            - features.networking is defined
+            - features.networking.ifname is defined
+            - features.networking.ip4 is defined
+            - features.networking.gw4 is defined
+
+        - name: Set DNS servers for static ethernet
+          ansible.builtin.command: >
+            nmcli con mod {{ static_eth_name }} ipv4.dns "{{ features.networking.dns }}"
+          changed_when: false
+          when:
+            - features.networking is defined
+            - features.networking.dns is defined
+        - name: Set IPv4 method to manual for static ethernet
+          ansible.builtin.command: >
+            nmcli con mod {{ static_eth_name }} ipv4.method manual
+          changed_when: false
+          when:
+            - features.networking is defined
+
+        - name: Run network restart script to safely reconfigure networking
+          ansible.builtin.copy:
+            dest: /tmp/restart_network.sh
+            mode: '0755'
+            owner: root
+            group: root
+            content: |
+              #!/bin/bash
+              set -e
+              set -x
+              sleep 5
+              # Stop networking to avoid conflicts
+              systemctl stop networking || true
+              # Restart NetworkManager
+              systemctl restart NetworkManager
+              # Bring up the static ethernet connection
+              nmcli con up "{{ static_eth_name }}"
+              sleep 10
+              reboot
+          when:
+            - features.networking is defined
+
+        - name: Execute network restart script in background
+          ansible.builtin.shell: nohup /tmp/restart_network.sh >/tmp/restart_network.log 2>&1 &
+          changed_when: false
+          args:
+            executable: /bin/bash
+          async: 1
+          poll: 0
+          when:
+            - features.networking is defined
