@@ -1,8 +1,17 @@
 features:
   # System configuration
   system:
-    hostname: "prism-test-machine"  # Set system hostname (leave empty to skip hostname change)
- 
+    hostname: "{{ system_hostname }}"  # Set system hostname (leave empty to skip hostname change)
+    timezone: "Australia/Adelaide"  # Set system timezone (e.g., "Australia/Adelaide")
+  # Networking configuration
+  networking:
+    ifname: enp6s18
+    ip4: "{{ system_ip4 }}"
+    gw4: 192.168.1.1
+    dns: "192.168.1.1 9.9.9.9 1.1.1.2 149.112.112.112 1.0.0.2"
+  
+  apt_proxy: "" # Leave blank to disable apt-cacher-ng usage
+
   serial:
     enabled: true
     device: ttyS0
