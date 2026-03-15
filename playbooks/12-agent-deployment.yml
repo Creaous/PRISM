@@ -1,0 +1,161 @@
+---
+- name: Deploy monitoring and security agents
+  hosts: all
+  become: true
+
+  tasks:
+    - name: Validate Checkmk agent settings
+      ansible.builtin.assert:
+        that:
+          - features.agent_deployment.checkmk.package_url is defined
+          - features.agent_deployment.checkmk.package_url | length > 0
+          - features.agent_deployment.checkmk.server is defined
+          - features.agent_deployment.checkmk.server | length > 0
+          - features.agent_deployment.checkmk.site is defined
+          - features.agent_deployment.checkmk.site | length > 0
+          - features.agent_deployment.checkmk.user is defined
+          - features.agent_deployment.checkmk.user | length > 0
+          - features.agent_deployment.checkmk.password is defined
+          - features.agent_deployment.checkmk.password | length > 0
+        fail_msg: "Checkmk deployment is enabled but required settings are missing in features.agent_deployment.checkmk"
+      when:
+        - features.agent_deployment.enabled | default(false)
+        - features.agent_deployment.checkmk.enabled | default(false)
+
+    - name: Set Checkmk package path
+      ansible.builtin.set_fact:
+        prism_checkmk_deb_path: "/tmp/{{ (features.agent_deployment.checkmk.package_url | basename) }}"
+      when:
+        - features.agent_deployment.enabled | default(false)
+        - features.agent_deployment.checkmk.enabled | default(false)
+
+    - name: Download Checkmk agent package
+      ansible.builtin.get_url:
+        url: "{{ features.agent_deployment.checkmk.package_url }}"
+        dest: "{{ prism_checkmk_deb_path }}"
+        mode: "0644"
+        force: true
+      when:
+        - features.agent_deployment.enabled | default(false)
+        - features.agent_deployment.checkmk.enabled | default(false)
+
+    - name: Install Checkmk agent package
+      ansible.builtin.apt:
+        deb: "{{ prism_checkmk_deb_path }}"
+        state: present
+      when:
+        - features.agent_deployment.enabled | default(false)
+        - features.agent_deployment.checkmk.enabled | default(false)
+
+    - name: Check Checkmk registration marker
+      ansible.builtin.stat:
+        path: /etc/check_mk/.prism_registered
+      register: prism_checkmk_registration_marker
+      when:
+        - features.agent_deployment.enabled | default(false)
+        - features.agent_deployment.checkmk.enabled | default(false)
+        - features.agent_deployment.checkmk.register | default(true)
+
+    - name: Remove Checkmk registration marker for forced re-registration
+      ansible.builtin.file:
+        path: /etc/check_mk/.prism_registered
+        state: absent
+      when:
+        - features.agent_deployment.enabled | default(false)
+        - features.agent_deployment.checkmk.enabled | default(false)
+        - features.agent_deployment.checkmk.register | default(true)
+        - features.agent_deployment.checkmk.force_reregister | default(false)
+
+    - name: Register Checkmk agent
+      ansible.builtin.command: >-
+        cmk-agent-ctl register
+        --hostname {{ features.agent_deployment.checkmk.hostname | default(ansible_facts.hostname) }}
+        --server {{ features.agent_deployment.checkmk.server }}
+        --site {{ features.agent_deployment.checkmk.site }}
+        --user {{ features.agent_deployment.checkmk.user }}
+        --password {{ features.agent_deployment.checkmk.password }}
+      args:
+        creates: /etc/check_mk/.prism_registered
+      no_log: true
+      when:
+        - features.agent_deployment.enabled | default(false)
+        - features.agent_deployment.checkmk.enabled | default(false)
+        - features.agent_deployment.checkmk.register | default(true)
+        - not (prism_checkmk_registration_marker.stat.exists | default(false))
+
+    - name: Create Checkmk registration marker
+      ansible.builtin.file:
+        path: /etc/check_mk/.prism_registered
+        state: touch
+        owner: root
+        group: root
+        mode: "0600"
+      when:
+        - features.agent_deployment.enabled | default(false)
+        - features.agent_deployment.checkmk.enabled | default(false)
+        - features.agent_deployment.checkmk.register | default(true)
+        - not (prism_checkmk_registration_marker.stat.exists | default(false))
+
+    - name: Remove downloaded Checkmk package
+      ansible.builtin.file:
+        path: "{{ prism_checkmk_deb_path }}"
+        state: absent
+      when:
+        - features.agent_deployment.enabled | default(false)
+        - features.agent_deployment.checkmk.enabled | default(false)
+
+    - name: Validate Wazuh agent settings
+      ansible.builtin.assert:
+        that:
+          - features.agent_deployment.wazuh.package_url is defined
+          - features.agent_deployment.wazuh.package_url | length > 0
+          - features.agent_deployment.wazuh.manager is defined
+          - features.agent_deployment.wazuh.manager | length > 0
+        fail_msg: "Wazuh deployment is enabled but required settings are missing in features.agent_deployment.wazuh"
+      when:
+        - features.agent_deployment.enabled | default(false)
+        - features.agent_deployment.wazuh.enabled | default(false)
+
+    - name: Set Wazuh package path
+      ansible.builtin.set_fact:
+        prism_wazuh_deb_path: "/tmp/{{ (features.agent_deployment.wazuh.package_url | basename) }}"
+      when:
+        - features.agent_deployment.enabled | default(false)
+        - features.agent_deployment.wazuh.enabled | default(false)
+
+    - name: Download Wazuh agent package
+      ansible.builtin.get_url:
+        url: "{{ features.agent_deployment.wazuh.package_url }}"
+        dest: "{{ prism_wazuh_deb_path }}"
+        mode: "0644"
+        force: true
+      when:
+        - features.agent_deployment.enabled | default(false)
+        - features.agent_deployment.wazuh.enabled | default(false)
+
+    - name: Install Wazuh agent package
+      ansible.builtin.apt:
+        deb: "{{ prism_wazuh_deb_path }}"
+        state: present
+      environment:
+        WAZUH_MANAGER: "{{ features.agent_deployment.wazuh.manager }}"
+      when:
+        - features.agent_deployment.enabled | default(false)
+        - features.agent_deployment.wazuh.enabled | default(false)
+
+    - name: Ensure Wazuh agent service is enabled and started
+      ansible.builtin.systemd:
+        name: wazuh-agent
+        enabled: true
+        state: started
+      when:
+        - features.agent_deployment.enabled | default(false)
+        - features.agent_deployment.wazuh.enabled | default(false)
+
+    - name: Remove downloaded Wazuh package
+      ansible.builtin.file:
+        path: "{{ prism_wazuh_deb_path }}"
+        state: absent
+      when:
+        - features.agent_deployment.enabled | default(false)
+        - features.agent_deployment.wazuh.enabled | default(false)

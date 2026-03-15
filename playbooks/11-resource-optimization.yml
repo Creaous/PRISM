@@ -1,0 +1,98 @@
+---
+- name: Optimize CPU and memory usage
+  hosts: all
+  become: true
+  handlers:
+    - name: Import shared handlers
+      ansible.builtin.import_tasks: handlers/main.yml
+
+  tasks:
+    - name: Validate resource optimization configuration
+      ansible.builtin.assert:
+        that:
+          - (features.resource_optimization.zram_percent | default(25) | int) >= 5
+          - (features.resource_optimization.zram_percent | default(25) | int) <= 80
+          - (features.resource_optimization.zram_priority | default(100) | int) >= 1
+          - (features.resource_optimization.zram_priority | default(100) | int) <= 32767
+          - (features.resource_optimization.vm_swappiness | default(20) | int) >= 0
+          - (features.resource_optimization.vm_swappiness | default(20) | int) <= 100
+          - (features.resource_optimization.vm_vfs_cache_pressure | default(50) | int) >= 10
+          - (features.resource_optimization.vm_vfs_cache_pressure | default(50) | int) <= 200
+        fail_msg: "Invalid resource optimization settings. Check zram and vm_* values in config.yml."
+        success_msg: "Resource optimization settings are valid"
+
+    - name: Warn about container zram support
+      ansible.builtin.debug:
+        msg: "Skipping zram setup on container target (LXC/container)."
+      when:
+        - prism_is_container
+        - features.resource_optimization.zram_enabled | default(true)
+
+    - name: Install zram tools
+      ansible.builtin.include_tasks: tasks/install_packages.yml
+      vars:
+        package_list:
+          - zram-tools
+      when:
+        - not prism_is_container
+        - features.resource_optimization.zram_enabled | default(true)
+
+    - name: Configure zram swap profile
+      ansible.builtin.copy:
+        dest: /etc/default/zramswap
+        owner: "{{ default_root_owner }}"
+        group: "{{ default_root_group }}"
+        mode: "{{ default_file_mode }}"
+        content: |
+          ALGO={{ features.resource_optimization.zram_algorithm | default('zstd') }}
+          PERCENT={{ features.resource_optimization.zram_percent | default(25) }}
+          PRIORITY={{ features.resource_optimization.zram_priority | default(100) }}
+      when:
+        - not prism_is_container
+        - features.resource_optimization.zram_enabled | default(true)
+      notify: Restart zramswap
+
+    - name: Ensure zramswap is enabled
+      ansible.builtin.systemd:
+        name: zramswap.service
+        enabled: true
+        state: started
+      when:
+        - not prism_is_container
+        - features.resource_optimization.zram_enabled | default(true)
+
+    - name: Deploy runtime resource sysctl tuning
+      ansible.builtin.copy:
+        dest: /etc/sysctl.d/98-resource-optimization.conf
+        owner: "{{ default_root_owner }}"
+        group: "{{ default_root_group }}"
+        mode: "{{ default_file_mode }}"
+        content: |
+          # Runtime resource tuning for better memory behavior
+          vm.swappiness = {{ features.resource_optimization.vm_swappiness | default(20) }}
+          vm.vfs_cache_pressure = {{ features.resource_optimization.vm_vfs_cache_pressure | default(50) }}
+          vm.dirty_background_ratio = {{ features.resource_optimization.vm_dirty_background_ratio | default(5) }}
+          vm.dirty_ratio = {{ features.resource_optimization.vm_dirty_ratio | default(15) }}
+      notify: Apply sysctl settings
+
+    - name: Constrain journald memory footprint
+      ansible.builtin.lineinfile:
+        path: /etc/systemd/journald.conf
+        regexp: "^{{ item.key }}="
+        line: "{{ item.key }}={{ item.value }}"
+        state: present
+      loop:
+        - key: RuntimeMaxUse
+          value: "{{ features.resource_optimization.journald_runtime_max_use | default('128M') }}"
+        - key: SystemMaxUse
+          value: "{{ features.resource_optimization.journald_system_max_use | default('512M') }}"
+      notify: Restart systemd-journald
+
+    - name: Disable optional high-overhead services
+      ansible.builtin.systemd:
+        name: "{{ item }}"
+        enabled: false
+        state: stopped
+      loop: "{{ features.resource_optimization.services_to_disable | default([]) }}"
+      failed_when: false
+      when: features.resource_optimization.disable_unneeded_services | default(true)

@@ -15,10 +15,10 @@
     - name: Set APT proxy
       ansible.builtin.copy:
         dest: /etc/apt/apt.conf
-        content: "Acquire::http::Proxy \"{{ features.apt_proxy }}\";"
+        content: 'Acquire::http::Proxy "{{ features.apt_proxy }}";'
         owner: root
         group: root
-        mode: '0644'
+        mode: "0644"
       when: features.apt_proxy is defined and features.apt_proxy | length > 0
 
     - name: Reset machine-id
@@ -26,10 +26,18 @@
       args:
         creates: /etc/machine-id
 
+    - name: Find existing SSH host keys
+      ansible.builtin.find:
+        paths: /etc/ssh
+        patterns: "ssh_host_*"
+        file_type: file
+      register: prism_ssh_host_keys
+
     - name: Remove old SSH host keys
       ansible.builtin.file:
-        path: /etc/ssh/ssh_host_*
+        path: "{{ item.path }}"
         state: absent
+      loop: "{{ prism_ssh_host_keys.files }}"
 
     - name: Reconfigure openssh-server
       ansible.builtin.command: dpkg-reconfigure openssh-server
@@ -49,7 +57,7 @@
         content: "{{ backports_repo }}"
         owner: root
         group: root
-        mode: '0644'
+        mode: "0644"
       when: ansible_facts['distribution_version'] == 'bookworm'
 
     - name: Set sudo group to NOPASSWD in sudoers
@@ -58,6 +66,6 @@
         create: true
         owner: root
         group: root
-        mode: '0440'
-        line: '%sudo ALL=(ALL:ALL) NOPASSWD:ALL'
-        validate: '/usr/sbin/visudo -cf %s'
+        mode: "0440"
+        line: "%sudo ALL=(ALL:ALL) NOPASSWD:ALL"
+        validate: "/usr/sbin/visudo -cf %s"

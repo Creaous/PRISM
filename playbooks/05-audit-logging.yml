@@ -7,14 +7,52 @@
       ansible.builtin.import_tasks: handlers/main.yml
 
   tasks:
+    - name: Skip audit and logging configuration on container targets
+      ansible.builtin.debug:
+        msg: "Skipping audit/logging configuration because target type is resolved as container and features.target.container_support.audit_logging is false."
+      when:
+        - prism_is_container
+        - not prism_container_audit_enabled
+
+    - name: End audit/logging play on container targets
+      ansible.builtin.meta: end_play
+      when:
+        - prism_is_container
+        - not prism_container_audit_enabled
+
+    - name: Select audit/logging package set
+      ansible.builtin.set_fact:
+        prism_enable_auditd: "{{ (not prism_is_container) and ((not prism_wazuh_mode_enabled) or prism_wazuh_keep_auditd) }}"
+        prism_enable_sysstat: >-
+          {{
+            (
+              (not prism_wazuh_mode_enabled) or
+              (not prism_wazuh_reduce_redundant) or
+              prism_wazuh_keep_sysstat
+            )
+          }}
+        prism_enable_acct: "{{ (not prism_is_container) and ((not prism_wazuh_mode_enabled) or (not prism_wazuh_reduce_redundant)) }}"
+
+    - name: Build effective audit/logging package and service lists
+      ansible.builtin.set_fact:
+        prism_audit_packages: >-
+          {{
+            (['auditd', 'audispd-plugins'] if prism_enable_auditd else [])
+            + (['sysstat'] if prism_enable_sysstat else [])
+            + (['acct'] if prism_enable_acct else [])
+          }}
+        prism_monitoring_services: >-
+          {{
+            (['auditd'] if prism_enable_auditd else [])
+            + (['sysstat'] if prism_enable_sysstat else [])
+            + (['acct'] if prism_enable_acct else [])
+          }}
+
     - name: Install audit and monitoring packages
       ansible.builtin.include_tasks: tasks/install_packages.yml
       vars:
-        package_list:
-          - auditd
-          - audispd-plugins
-          - sysstat
-          - acct
+        package_list: "{{ prism_audit_packages }}"
+      when: prism_audit_packages | length > 0
 
     - name: Enable system monitoring services
       ansible.builtin.systemd:
@@ -22,18 +60,27 @@
         enabled: true
         state: started
         masked: false
-      loop:
-        - auditd
-        - sysstat
-        - acct
+      loop: "{{ prism_monitoring_services }}"
+      when: prism_monitoring_services | length > 0
 
     - name: Enable sysstat data collection
       ansible.builtin.lineinfile:
         path: /etc/default/sysstat
-        regexp: '^ENABLED='
+        regexp: "^ENABLED="
         line: 'ENABLED="true"'
         state: present
-      when: ansible_facts['os_family'] == "Debian"
+      when:
+        - ansible_facts['os_family'] == "Debian"
+        - prism_enable_sysstat
+
+    - name: Ensure audit rules directory exists
+      ansible.builtin.file:
+        path: /etc/audit/rules.d
+        state: directory
+        owner: "{{ default_root_owner }}"
+        group: "{{ default_root_group }}"
+        mode: "0750"
+      when: prism_enable_auditd
 
     - name: Configure audit rules for Wazuh integration
       ansible.builtin.copy:
@@ -73,4 +120,5 @@
 
           # Make configuration immutable
           -e 2
-      notify: Restart auditd
+          when: prism_enable_auditd
+          notify: Restart auditd

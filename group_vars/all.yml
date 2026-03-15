@@ -2,10 +2,72 @@
 # Common default values used across PRISM playbooks
 # These values promote consistency and reduce duplication
 
+# Target platform resolution
+# features.target.type supports: auto, vm, lxc, container
+prism_target_type_config: "{{ features.target.type | default('auto') | lower }}"
+prism_virtualization_type: "{{ ansible_facts.virtualization_type | default('unknown') | lower }}"
+prism_virtualization_role: "{{ ansible_facts.virtualization_role | default('unknown') | lower }}"
+prism_known_container_types:
+  - lxc
+  - lxd
+  - docker
+  - podman
+  - containerd
+  - openvz
+  - nspawn
+
+prism_is_container: >-
+  {{
+    prism_target_type_config in ['container', 'lxc']
+    or
+    (
+      prism_target_type_config == 'auto'
+      and prism_virtualization_type in prism_known_container_types
+    )
+  }}
+
+prism_is_vm: >-
+  {{
+    prism_target_type_config == 'vm'
+    or
+    (
+      prism_target_type_config == 'auto'
+      and not prism_is_container
+    )
+  }}
+
+prism_target_type_resolved: "{{ 'container' if prism_is_container else 'vm' }}"
+
+# Optional container capabilities (defaults are conservative)
+prism_container_firewall_enabled: "{{ features.target.container_support.firewall | default(false) | bool }}"
+prism_container_audit_enabled: "{{ features.target.container_support.audit_logging | default(false) | bool }}"
+prism_container_networking_enabled: "{{ features.target.container_support.networking | default(false) | bool }}"
+
+# Wazuh integration mode (deduplicate overlapping agents/services)
+prism_wazuh_mode_enabled: "{{ features.integrations.wazuh_mode.enabled | default(false) | bool }}"
+prism_wazuh_reduce_redundant: "{{ features.integrations.wazuh_mode.reduce_redundant_tools | default(true) | bool }}"
+prism_wazuh_keep_auditd: "{{ features.integrations.wazuh_mode.keep_auditd | default(true) | bool }}"
+prism_wazuh_keep_sysstat: "{{ features.integrations.wazuh_mode.keep_sysstat | default(false) | bool }}"
+
+prism_effective_fail2ban_enabled: >-
+  {{
+    (features.security_tools.fail2ban_enabled | default(true) | bool)
+    and not (prism_wazuh_mode_enabled and prism_wazuh_reduce_redundant)
+  }}
+
+prism_effective_debsums_enabled: >-
+  {{
+    (features.security_tools.debsums_check | default(true) | bool)
+    and not (prism_wazuh_mode_enabled and prism_wazuh_reduce_redundant)
+  }}
+
+# Service naming can vary by distro family
+prism_ssh_service_name: "{{ 'ssh' if ansible_facts.os_family | default('Debian') == 'Debian' else 'sshd' }}"
+
 # File ownership and permissions
-default_file_mode: '0644'
-default_secure_mode: '0640'
-default_restricted_mode: '0600'
+default_file_mode: "0644"
+default_secure_mode: "0640"
+default_restricted_mode: "0600"
 default_root_owner: root
 default_root_group: root
 

@@ -7,7 +7,7 @@
   hosts: all
   gather_facts: true
   become: false
-  
+
   tasks:
     - name: Check Ansible version
       ansible.builtin.assert:
@@ -24,6 +24,22 @@
           - features is defined
         fail_msg: "Configuration file not loaded. Run with: -e '@config.yml'"
         success_msg: "Configuration file loaded successfully"
+      run_once: true
+
+    - name: Validate target type selection
+      ansible.builtin.assert:
+        that:
+          - (features.target.type | default('auto') | lower) in ['auto', 'vm', 'lxc', 'container']
+        fail_msg: "Invalid features.target.type. Allowed values: auto, vm, lxc, container"
+        success_msg: "Target type configuration is valid"
+      run_once: true
+
+    - name: Display target platform detection
+      ansible.builtin.debug:
+        msg:
+          - "Target type configured: {{ features.target.type | default('auto') | lower }}"
+          - "Virtualization facts: role={{ prism_virtualization_role }}, type={{ prism_virtualization_type }}"
+          - "Resolved target type: {{ prism_target_type_resolved }}"
       run_once: true
 
     - name: Check OS distribution
@@ -70,9 +86,16 @@
       loop:
         - apt
         - systemctl
-        - update-grub
         - sysctl
       become: true
+
+    - name: Check for GRUB tooling on VM targets
+      ansible.builtin.command: which update-grub
+      register: grub_command_check
+      changed_when: false
+      failed_when: false
+      become: true
+      when: not prism_is_container
 
     - name: Validate GRUB password hash format (if enabled)
       ansible.builtin.assert:
@@ -101,6 +124,65 @@
         - features.ssh_hardening.port is defined
       run_once: true
 
+    - name: Validate resource optimization parameters
+      ansible.builtin.assert:
+        that:
+          - (features.resource_optimization.zram_percent | default(25) | int) >= 5
+          - (features.resource_optimization.zram_percent | default(25) | int) <= 80
+          - (features.resource_optimization.vm_swappiness | default(20) | int) >= 0
+          - (features.resource_optimization.vm_swappiness | default(20) | int) <= 100
+        fail_msg: "Invalid resource optimization settings in features.resource_optimization."
+        success_msg: "Resource optimization settings are valid"
+      when: features.resource_optimization.enabled | default(false)
+      run_once: true
+
+    - name: Validate Checkmk deployment settings (if enabled)
+      ansible.builtin.assert:
+        that:
+          - features.agent_deployment.checkmk.package_url is defined
+          - features.agent_deployment.checkmk.package_url | length > 0
+          - features.agent_deployment.checkmk.server is defined
+          - features.agent_deployment.checkmk.server | length > 0
+          - features.agent_deployment.checkmk.site is defined
+          - features.agent_deployment.checkmk.site | length > 0
+          - features.agent_deployment.checkmk.user is defined
+          - features.agent_deployment.checkmk.user | length > 0
+          - features.agent_deployment.checkmk.password is defined
+          - features.agent_deployment.checkmk.password | length > 0
+        fail_msg: "Invalid Checkmk deployment settings in features.agent_deployment.checkmk"
+        success_msg: "Checkmk deployment settings are valid"
+      when:
+        - features.agent_deployment.enabled | default(false)
+        - features.agent_deployment.checkmk.enabled | default(false)
+      run_once: true
+
+    - name: Validate Checkmk firewall integration settings (if enabled)
+      ansible.builtin.assert:
+        that:
+          - (features.agent_deployment.checkmk.agent_port | default(6556) | int) > 0
+          - (features.agent_deployment.checkmk.agent_port | default(6556) | int) < 65536
+        fail_msg: "Invalid features.agent_deployment.checkmk.agent_port value"
+        success_msg: "Checkmk firewall settings are valid"
+      when:
+        - features.agent_deployment.enabled | default(false)
+        - features.agent_deployment.checkmk.enabled | default(false)
+        - features.agent_deployment.checkmk.configure_firewall | default(true)
+      run_once: true
+
+    - name: Validate Wazuh deployment settings (if enabled)
+      ansible.builtin.assert:
+        that:
+          - features.agent_deployment.wazuh.package_url is defined
+          - features.agent_deployment.wazuh.package_url | length > 0
+          - features.agent_deployment.wazuh.manager is defined
+          - features.agent_deployment.wazuh.manager | length > 0
+        fail_msg: "Invalid Wazuh deployment settings in features.agent_deployment.wazuh"
+        success_msg: "Wazuh deployment settings are valid"
+      when:
+        - features.agent_deployment.enabled | default(false)
+        - features.agent_deployment.wazuh.enabled | default(false)
+      run_once: true
+
     - name: Warn about SSH port change
       ansible.builtin.debug:
         msg: |
@@ -120,6 +202,24 @@
         success_msg: "Firewall configuration is valid"
       when:
         - features.firewall.enabled | default(false)
+      run_once: true
+
+    - name: Warn when firewall feature is enabled on containers
+      ansible.builtin.debug:
+        msg: "INFO: features.firewall.enabled is true; set features.target.container_support.firewall=true to apply on container targets."
+      when:
+        - prism_is_container
+        - features.firewall.enabled | default(false)
+        - not prism_container_firewall_enabled
+      run_once: true
+
+    - name: Warn when audit logging feature is enabled on containers
+      ansible.builtin.debug:
+        msg: "INFO: features.audit_logging.enabled is true; set features.target.container_support.audit_logging=true to apply on container targets."
+      when:
+        - prism_is_container
+        - features.audit_logging.enabled | default(false)
+        - not prism_container_audit_enabled
       run_once: true
 
     - name: Check available disk space
@@ -151,5 +251,6 @@
           - "===== PRISM Pre-flight Validation Complete ====="
           - "Target: {{ inventory_hostname }}"
           - "OS: {{ ansible_facts['distribution'] }} {{ ansible_facts['distribution_version'] }}"
+          - "Platform: {{ prism_target_type_resolved }}"
           - "Python: {{ python_version.stdout }}"
           - "All prerequisites met. Ready to execute PRISM hardening."

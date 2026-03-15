@@ -27,12 +27,21 @@
         - features.sysctl_hardening.enabled | default(false)
         - features.sysctl_hardening.modules_disabled | default(false)
 
+    - name: Warn when kernel module hardening is requested on container targets
+      ansible.builtin.debug:
+        msg: |
+          INFO: kernel module hardening was requested but target is a container.
+          Modprobe and initramfs changes are skipped on containers.
+      when:
+        - prism_is_container
+        - features.kernel_modules.enabled | default(false)
+
     # Sysctl hardening
     - name: Ensure sysctl.d directory exists
       ansible.builtin.file:
         path: /etc/sysctl.d
         state: directory
-        mode: '0755'
+        mode: "0755"
         owner: "{{ default_root_owner }}"
         group: "{{ default_root_group }}"
 
@@ -78,9 +87,12 @@
       ansible.builtin.file:
         path: /etc/modprobe.d
         state: directory
-        mode: '0755'
+        mode: "0755"
         owner: "{{ default_root_owner }}"
         group: "{{ default_root_group }}"
+      when:
+        - features.kernel_modules.enabled | default(false)
+        - not prism_is_container
 
     - name: Disable unused network protocols
       ansible.builtin.copy:
@@ -104,7 +116,10 @@
           # Disable TIPC (Transparent Inter-Process Communication)
           install tipc /bin/true
           blacklist tipc
-      when: features.kernel_modules.disable_protocols | default(true)
+      when:
+        - features.kernel_modules.enabled | default(false)
+        - features.kernel_modules.disable_protocols | default(true)
+        - not prism_is_container
       notify: Update initramfs
 
     - name: Disable USB storage
@@ -117,7 +132,10 @@
           # Disable USB storage to prevent unauthorized data theft
           install usb-storage /bin/true
           blacklist usb-storage
-      when: features.kernel_modules.disable_usb | default(false)
+      when:
+        - features.kernel_modules.enabled | default(false)
+        - features.kernel_modules.disable_usb | default(false)
+        - not prism_is_container
       notify: Update initramfs
 
     - name: Disable FireWire storage
@@ -134,5 +152,8 @@
           blacklist firewire-ohci
           install firewire-sbp2 /bin/true
           blacklist firewire-sbp2
-      when: features.kernel_modules.disable_firewire | default(true)
+      when:
+        - features.kernel_modules.enabled | default(false)
+        - features.kernel_modules.disable_firewire | default(true)
+        - not prism_is_container
       notify: Update initramfs

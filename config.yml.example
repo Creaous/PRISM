@@ -1,10 +1,48 @@
 features:
+  # Target platform selection
+  # auto: infer from facts, vm: force VM behavior, lxc/container: force container behavior
+  target:
+    type: auto
+    # Container capability toggles (use only when your container runtime supports these features)
+    container_support:
+      firewall: false
+      audit_logging: false
+      networking: false
+
+  integrations:
+    wazuh_mode:
+      enabled: false
+      reduce_redundant_tools: true
+      keep_auditd: true
+      keep_sysstat: false
+
+  # Agent auto-deployment
+  agent_deployment:
+    enabled: false
+    checkmk:
+      enabled: false
+      package_url: "http://monitoring.internal:8080/cmk/check_mk/agents/check-mk-agent_2.4.0p22-1_all.deb"
+      configure_firewall: true
+      agent_port: 6556
+      register: true
+      hostname: "{{ ansible_facts.hostname }}"
+      server: "monitoring.internal:8000"
+      site: "cmk"
+      user: "agent_registration"
+      password: "CHANGE_ME"
+      force_reregister: false
+    wazuh:
+      enabled: false
+      package_url: "https://packages.wazuh.com/4.x/apt/pool/main/w/wazuh-agent/wazuh-agent_4.14.3-1_amd64.deb"
+      manager: "wazuh.internal"
+
   # System configuration
   system:
     hostname: "{{ system_hostname }}"  # Set system hostname (leave empty to skip hostname change)
     timezone: "Australia/Adelaide"  # Set system timezone (e.g., "Australia/Adelaide")
   # Networking configuration
   networking:
+    enabled: false
     ifname: enp6s18
     ip4: "{{ system_ip4 }}"
     gw4: 192.168.1.1
@@ -37,6 +75,27 @@ features:
     disable_protocols: true  # Disables dccp, sctp, rds, tipc
     disable_usb: true       # Set to true to disable USB storage
     disable_firewire: true   # Disables FireWire storage
+
+  # CPU and memory optimization
+  # Debian defaults can be memory-heavy; this section adds practical tuning.
+  resource_optimization:
+    enabled: true
+    zram_enabled: true
+    zram_algorithm: zstd
+    zram_percent: 25      # percent of RAM used for zram
+    zram_priority: 100
+    vm_swappiness: 20
+    vm_vfs_cache_pressure: 50
+    vm_dirty_background_ratio: 5
+    vm_dirty_ratio: 15
+    journald_runtime_max_use: 128M
+    journald_system_max_use: 512M
+    disable_unneeded_services: true
+    services_to_disable:
+      - bluetooth
+      - avahi-daemon
+      - ModemManager
+      - cups
   
   # SSH hardening
   ssh_hardening:
@@ -168,3 +227,7 @@ features:
   # Dynamic MOTD (Message of the Day)
   dynamic_motd:
     enabled: true  # Set to true to enable dynamic MOTD with system information
+
+  # One-time system uniqueness operations (machine-id, host keys, sudoers tuning)
+  make_unique:
+    enabled: false

@@ -5,24 +5,30 @@
 - name: Update GRUB
   ansible.builtin.command: update-grub
   changed_when: true
+  when: not prism_is_container
 
 - name: Restart SSH service
   ansible.builtin.systemd:
-    name: sshd
+    name: "{{ prism_ssh_service_name }}"
     state: restarted
 
 - name: Restart auditd
-  ansible.builtin.service:
+  ansible.builtin.systemd:
     name: auditd
     state: restarted
+  register: prism_auditd_restart
+  failed_when: prism_auditd_restart.failed and not prism_is_container
 
 - name: Apply sysctl settings
   ansible.builtin.command: sysctl --system
+  register: prism_sysctl_apply
   changed_when: true
+  failed_when: prism_sysctl_apply.rc != 0 and not prism_is_container
 
 - name: Update initramfs
   ansible.builtin.command: update-initramfs -u
   changed_when: true
+  when: not prism_is_container
 
 - name: Reload firewalld
   ansible.builtin.systemd:
@@ -33,3 +39,14 @@
   ansible.builtin.systemd:
     name: fail2ban
     state: restarted
+
+- name: Restart systemd-journald
+  ansible.builtin.systemd:
+    name: systemd-journald
+    state: restarted
+
+- name: Restart zramswap
+  ansible.builtin.systemd:
+    name: zramswap.service
+    state: restarted
+  failed_when: false

@@ -3,6 +3,7 @@
 ## Essential Commands
 
 ### Setup (First Time)
+
 ```bash
 # 1. Install dependencies
 make install
@@ -17,6 +18,7 @@ vim inventory.ini    # Add your servers
 ```
 
 ### Validation
+
 ```bash
 make validate        # Pre-flight checks
 make check           # Syntax + validation
@@ -25,6 +27,7 @@ make diff            # Show what would change
 ```
 
 ### Deployment
+
 ```bash
 make deploy                              # Full deployment
 make deploy-tags TAGS=ssh                # SSH hardening only
@@ -33,6 +36,7 @@ make deploy-skip-tags SKIP_TAGS=grub     # Skip GRUB config
 ```
 
 ### Information
+
 ```bash
 make list-hosts      # Show target hosts
 make list-tasks      # Show all tasks
@@ -42,48 +46,84 @@ make help            # Show all commands
 ```
 
 ### Testing
+
 ```bash
 make test-converge   # Deploy to test container
 make test-verify     # Verify test deployment
 ```
 
 ### Maintenance
+
 ```bash
 make clean           # Remove temporary files
 ```
 
 ## Available Tags
 
-| Tag                               | Description         |
-| --------------------------------- | ------------------- |
-| `requirements`                    | System requirements |
-| `grub`, `boot`                    | GRUB configuration  |
-| `hardening`, `kernel`, `sysctl`   | Kernel hardening    |
-| `authentication`, `ssh`, `access` | SSH & auth          |
-| `firewall`, `network`             | Firewall            |
-| `audit`, `logging`, `monitoring`  | Logging             |
-| `security-tools`, `tools`         | Security tools      |
-| `users`, `accounts`               | User management     |
-| `motd`, `ui`                      | MOTD                |
-| `hostname`                        | Network config      |
+| Tag                                        | Description         |
+| ------------------------------------------ | ------------------- |
+| `requirements`                             | System requirements |
+| `grub`, `boot`                             | GRUB configuration  |
+| `hardening`, `kernel`, `sysctl`            | Kernel hardening    |
+| `authentication`, `ssh`, `access`          | SSH & auth          |
+| `firewall`, `network`                      | Firewall            |
+| `audit`, `logging`, `monitoring`           | Logging             |
+| `security-tools`, `tools`                  | Security tools      |
+| `users`, `accounts`                        | User management     |
+| `motd`, `ui`                               | MOTD                |
+| `hostname`                                 | Network config      |
+| `identity`, `one-time`                     | Make system unique  |
+| `performance`, `cpu`, `memory`             | Resource tuning     |
+| `agents`, `monitoring`, `wazuh`, `checkmk` | Agent deployment    |
 
 ## Configuration Highlights
 
 ### Critical Settings
+
 ```yaml
 # SSH Port (default 52460)
 features.ssh_hardening.port: 52460
 
 # Firewall default action
-features.firewall.default_target: "DROP"  # or ACCEPT, REJECT
+features.firewall.default_target: "DROP" # or ACCEPT, REJECT
 
 # GRUB password protection
 features.grub_password.enabled: true
+
+# Target platform (auto, vm, lxc, container)
+features.target.type: auto
+
+# Optional container support toggles
+features.target.container_support.firewall: false
+features.target.container_support.audit_logging: false
+features.target.container_support.networking: false
+
+# Wazuh integration mode (deduplicate overlapping tools)
+features.integrations.wazuh_mode.enabled: false
+features.integrations.wazuh_mode.reduce_redundant_tools: true
+features.integrations.wazuh_mode.keep_auditd: true
+features.integrations.wazuh_mode.keep_sysstat: false
+
+# Agent auto-deployment
+features.agent_deployment.enabled: false
+features.agent_deployment.checkmk.enabled: false
+features.agent_deployment.wazuh.enabled: false
+
+# Resource optimization
+features.resource_optimization.enabled: true
+features.resource_optimization.zram_enabled: true
+features.resource_optimization.zram_percent: 25
+features.resource_optimization.vm_swappiness: 20
+
+# Opt-in for disruptive operations
+features.networking.enabled: false
+features.make_unique.enabled: false
 ```
 
 ### Security Levels
 
 **Paranoid (Maximum Security)**
+
 ```yaml
 features.sysctl_hardening.modules_disabled: true
 features.firewall.default_target: "DROP"
@@ -92,6 +132,7 @@ features.ssh_hardening.permit_root_login: "no"
 ```
 
 **Balanced (Recommended)**
+
 ```yaml
 features.sysctl_hardening.modules_disabled: false
 features.firewall.default_target: "DROP"
@@ -100,38 +141,44 @@ features.ssh_hardening.permit_root_login: "prohibit-password"
 ```
 
 **Minimal (Basic Hardening)**
+
 ```yaml
 features.sysctl_hardening.enabled: true
 features.ssh_hardening.enabled: true
 features.auth_hardening.enabled: true
-features.firewall.enabled: false  # Manual firewall
+features.firewall.enabled: false # Manual firewall
 ```
 
 ## Common Workflows
 
 ### Initial Server Setup
+
 ```bash
 make validate
 make deploy
 ```
 
 ### Update SSH Configuration Only
+
 ```bash
 make deploy-tags TAGS=ssh
 ```
 
 ### Update Firewall Rules
+
 ```bash
 make deploy-tags TAGS=firewall
 ```
 
 ### Add New User
+
 ```bash
 # Edit config.yml, add user to features.user_management.users
 make deploy-tags TAGS=users
 ```
 
 ### Reconfigure GRUB
+
 ```bash
 make deploy-tags TAGS=grub
 ```
@@ -139,18 +186,23 @@ make deploy-tags TAGS=grub
 ## Emergency Procedures
 
 ### Locked Out of SSH
+
 **Prevention:**
+
 1. Always test with `make dry-run` first
 2. Ensure SSH port is in firewall allowed_ports
 3. Keep a console/IPMI access available
 
 **Recovery:**
+
 1. Access via console/IPMI
 2. Fix `/etc/ssh/sshd_config`
 3. Restart SSH: `systemctl restart sshd`
 
 ### Firewall Blocking Everything
+
 **Via Console:**
+
 ```bash
 # Disable firewall temporarily
 systemctl stop firewalld
@@ -161,7 +213,9 @@ ansible-playbook all.yml --tags firewall -e "@config.yml"
 ```
 
 ### GRUB Password Forgotten
+
 **Via Console:**
+
 1. Boot into recovery mode (before GRUB locks it)
 2. Edit `/etc/grub.d/40_custom`
 3. Run `update-grub`
@@ -170,6 +224,7 @@ ansible-playbook all.yml --tags firewall -e "@config.yml"
 ## Troubleshooting
 
 ### Playbook Fails
+
 ```bash
 # Check syntax
 make syntax
@@ -185,6 +240,7 @@ tail -f ansible.log
 ```
 
 ### Variables Not Loading
+
 ```bash
 # Ensure using -e flag
 ansible-playbook all.yml -e "@config.yml"
@@ -194,6 +250,7 @@ make deploy
 ```
 
 ### Module Not Found
+
 ```bash
 # Install dependencies
 make install

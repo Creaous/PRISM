@@ -1,7 +1,7 @@
 ---
 - name: Run requirements playbook
   ansible.builtin.import_playbook: playbooks/00-requirements.yml
-  tags: ['always', 'requirements']
+  tags: ["always", "requirements"]
 
 - name: Configure GRUB bootloader and boot parameters
   ansible.builtin.import_playbook: playbooks/01-grub-configuration.yml
@@ -10,14 +10,19 @@
     (features.vm_optimizations.enabled | default(false)) or
     (features.boot_verbosity.enabled | default(false)) or
     (features.grub_password.enabled | default(false))
-  tags: ['grub', 'boot']
+  tags: ["grub", "boot"]
 
 - name: Apply kernel and system hardening
   ansible.builtin.import_playbook: playbooks/02-system-hardening.yml
   when: >
     (features.sysctl_hardening.enabled | default(false)) or
     (features.kernel_modules.enabled | default(false))
-  tags: ['hardening', 'kernel', 'sysctl']
+  tags: ["hardening", "kernel", "sysctl"]
+
+- name: Optimize CPU and memory usage
+  ansible.builtin.import_playbook: playbooks/11-resource-optimization.yml
+  when: features.resource_optimization.enabled | default(false)
+  tags: ["performance", "cpu", "memory"]
 
 - name: Configure authentication, SSH, and access control
   ansible.builtin.import_playbook: playbooks/03-authentication-hardening.yml
@@ -25,36 +30,44 @@
     (features.ssh_hardening.enabled | default(false)) or
     (features.auth_hardening.enabled | default(false)) or
     (features.login_banners.enabled | default(false))
-  tags: ['authentication', 'ssh', 'access']
+  tags: ["authentication", "ssh", "access"]
 
 - name: Configure firewall
   ansible.builtin.import_playbook: playbooks/04-firewall.yml
   when: features.firewall.enabled | default(false)
-  tags: ['firewall', 'network']
+  tags: ["firewall", "network"]
 
 - name: Configure auditing and logging
   ansible.builtin.import_playbook: playbooks/05-audit-logging.yml
   when: features.audit_logging.enabled | default(false)
-  tags: ['audit', 'logging', 'monitoring']
+  tags: ["audit", "logging", "monitoring"]
 
 - name: Install security and system tools
   ansible.builtin.import_playbook: playbooks/06-security-tools.yml
   when: features.security_tools.enabled | default(false)
-  tags: ['security-tools', 'tools']
+  tags: ["security-tools", "tools"]
+
+- name: Deploy monitoring agents
+  ansible.builtin.import_playbook: playbooks/12-agent-deployment.yml
+  when: features.agent_deployment.enabled | default(false)
+  tags: ["agents", "monitoring", "wazuh", "checkmk"]
 
 - name: Manage system users
   ansible.builtin.import_playbook: playbooks/07-user-management.yml
   when: features.user_management.enabled | default(false)
-  tags: ['users', 'accounts']
+  tags: ["users", "accounts"]
 
 - name: Setup dynamic MOTD
   ansible.builtin.import_playbook: playbooks/08-dynamic-motd.yml
   when: features.dynamic_motd.enabled | default(false)
-  tags: ['motd', 'ui']
+  tags: ["motd", "ui"]
 
 - name: Make the system unique
   ansible.builtin.import_playbook: playbooks/09-make-unique.yml
+  when: features.make_unique.enabled | default(false)
+  tags: ["identity", "one-time"]
 
 - name: Configure networking
   ansible.builtin.import_playbook: playbooks/10-network-configuration.yml
-  tags: ['network', 'hostname']
+  when: features.networking.enabled | default(false)
+  tags: ["network", "hostname"]

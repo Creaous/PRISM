@@ -7,6 +7,15 @@
       ansible.builtin.import_tasks: handlers/main.yml
 
   tasks:
+    - name: Skip GRUB configuration on container targets
+      ansible.builtin.debug:
+        msg: "Skipping GRUB configuration because target type is resolved as container."
+      when: prism_is_container
+
+    - name: End GRUB play on container targets
+      ansible.builtin.meta: end_play
+      when: prism_is_container
+
     - name: Ensure getty is enabled on serial console
       ansible.builtin.systemd:
         name: "serial-getty@{{ features.serial.device }}.service"
@@ -61,7 +70,7 @@
     - name: Remove quiet and splash from GRUB_CMDLINE_LINUX_DEFAULT
       ansible.builtin.lineinfile:
         path: /etc/default/grub
-        regexp: '^GRUB_CMDLINE_LINUX_DEFAULT='
+        regexp: "^GRUB_CMDLINE_LINUX_DEFAULT="
         line: 'GRUB_CMDLINE_LINUX_DEFAULT=""'
       when: features.boot_verbosity.enabled | default(false)
       notify: Update GRUB
@@ -69,7 +78,7 @@
     - name: Update GRUB_CMDLINE_LINUX
       ansible.builtin.lineinfile:
         path: /etc/default/grub
-        regexp: '^GRUB_CMDLINE_LINUX='
+        regexp: "^GRUB_CMDLINE_LINUX="
         line: 'GRUB_CMDLINE_LINUX="{{ grub_params }}"'
       when: grub_params | length > 0
       notify: Update GRUB
@@ -77,15 +86,15 @@
     - name: Configure GRUB timeout
       ansible.builtin.lineinfile:
         path: /etc/default/grub
-        regexp: '^GRUB_TIMEOUT='
-        line: 'GRUB_TIMEOUT={{ features.grub_menu.timeout | default(5) }}'
+        regexp: "^GRUB_TIMEOUT="
+        line: "GRUB_TIMEOUT={{ features.grub_menu.timeout | default(5) }}"
       when: features.grub_menu.timeout is defined
       notify: Update GRUB
 
     - name: Configure GRUB timeout style
       ansible.builtin.lineinfile:
         path: /etc/default/grub
-        regexp: '^GRUB_TIMEOUT_STYLE='
+        regexp: "^GRUB_TIMEOUT_STYLE="
         line: 'GRUB_TIMEOUT_STYLE={{ features.grub_menu.timeout_style | default("menu") }}'
       when: features.grub_menu.timeout_style is defined
       notify: Update GRUB
@@ -125,7 +134,7 @@
     - name: Make boot entries require authentication
       ansible.builtin.lineinfile:
         path: /etc/grub.d/10_linux
-        regexp: '^CLASS='
+        regexp: "^CLASS="
         line: 'CLASS="--class gnu-linux --class gnu --class os --users """'
         backrefs: false
       when:

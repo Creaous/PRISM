@@ -8,11 +8,11 @@ An automated deployment framework for hardening and securing Linux servers throu
 
 ### Prerequisites
 
-- **Control node**: 
+- **Control node**:
   - Ansible >= 2.12
   - Python 3.6+
   - Make (optional, for shortcuts)
-- **Target hosts**: 
+- **Target hosts**:
   - Debian 12
   - Python 3
   - SSH access with sudo privileges
@@ -20,12 +20,14 @@ An automated deployment framework for hardening and securing Linux servers throu
 ### Installation
 
 1. **Clone the repository**
+
    ```bash
    git clone https://github.com/Creaous/PRISM.git
    cd PRISM
    ```
 
 2. **Install Ansible dependencies**
+
    ```bash
    make install
    # or manually:
@@ -33,6 +35,7 @@ An automated deployment framework for hardening and securing Linux servers throu
    ```
 
 3. **Create inventory file**
+
    ```bash
    make init-inventory
    # or manually create inventory.ini:
@@ -43,6 +46,7 @@ An automated deployment framework for hardening and securing Linux servers throu
    ```
 
 4. **Create and customize configuration**
+
    ```bash
    make init-config
    # or manually:
@@ -60,6 +64,7 @@ An automated deployment framework for hardening and securing Linux servers throu
 ### Deployment
 
 **Full deployment:**
+
 ```bash
 make deploy
 # or:
@@ -67,19 +72,23 @@ ansible-playbook -i inventory.ini all.yml -u root -k -e "@config.yml"
 ```
 
 **Dry run (check mode):**
+
 ```bash
 make dry-run
 ```
 
 **Deploy specific components:**
+
 ```bash
 make deploy-tags TAGS=ssh,firewall
-# Available tags: grub, boot, hardening, kernel, sysctl, authentication, 
-#                 ssh, access, firewall, network, audit, logging, 
-#                 monitoring, security-tools, tools, users, accounts, motd, ui
+# Available tags: grub, boot, hardening, kernel, sysctl, authentication,
+#                 ssh, access, firewall, network, audit, logging,
+#                 monitoring, security-tools, tools, users, accounts, motd, ui,
+#                 performance, cpu, memory
 ```
 
 **Skip specific components:**
+
 ```bash
 make deploy-skip-tags SKIP_TAGS=grub,users
 ```
@@ -115,7 +124,10 @@ PRISM/
 │   ├── 06-security-tools.yml
 │   ├── 07-user-management.yml
 │   ├── 08-dynamic-motd.yml
-│   ├── 09-network-configuration.yml
+│   ├── 09-make-unique.yml
+│   ├── 10-network-configuration.yml
+│   ├── 11-resource-optimization.yml
+│   ├── 12-agent-deployment.yml
 │   ├── handlers/
 │   │   └── main.yml          # Shared handlers
 │   ├── tasks/
@@ -126,6 +138,7 @@ PRISM/
 
 ## Key Features
 
+- **Target-Aware Hardening**: Supports VM and LXC/container targets with `features.target.type`
 - **Configuration-Driven**: Centralized YAML-based hardening control
 - **Modular Architecture**: Granular control per security component
 - **Comprehensive Coverage**: 40+ Lynis security recommendations implemented
@@ -138,29 +151,76 @@ PRISM/
 - **GRUB Protection**: Password-protected bootloader
 - **Sysctl Hardening**: Optimized kernel security parameters
 - **VM Optimized**: Tuned for virtualized environments
+- **Resource Optimization**: Lower RAM pressure with zram and tuned runtime memory settings
+- **Agent Auto-Deployment**: Automated installation and registration for Checkmk and Wazuh agents
 - **Serial Console**: Configurable remote access
 - **Idempotent**: Safe for repeated execution
 - **Drop-in Ready**: Compatible with existing infrastructure
 
 ## Security Hardening
 
+### Target Types
+
+- `features.target.type: auto` (recommended): detect target using virtualization facts
+- `features.target.type: vm`: force VM behavior
+- `features.target.type: lxc` or `container`: force container behavior
+
+Container behavior highlights:
+
+- GRUB and initramfs operations are skipped
+- Kernel module blacklist/initramfs regeneration is skipped
+- Sysctl hardening is still applied (best-effort)
+- Firewall, audit logging, and networking are configurable for containers via:
+  - `features.target.container_support.firewall`
+  - `features.target.container_support.audit_logging`
+  - `features.target.container_support.networking`
+  - Default for each is `false` for safety
+  - When container audit logging is enabled, PRISM applies `sysstat`; `auditd/acct` units are only managed on VM targets
+
+### Wazuh Mode
+
+- Enable `features.integrations.wazuh_mode.enabled: true` to reduce overlapping tools when Wazuh agent is in use.
+- In Wazuh mode with `reduce_redundant_tools: true` (default):
+  - `fail2ban` is skipped
+  - `debsums` periodic checks are skipped
+  - `acct` is skipped
+  - `auditd` is kept by default (`keep_auditd: true`)
+  - `sysstat` is disabled by default (`keep_sysstat: false`)
+- You can override the defaults with:
+  - `features.integrations.wazuh_mode.keep_auditd`
+  - `features.integrations.wazuh_mode.keep_sysstat`
+
+### Agent Deployment
+
+- Enable `features.agent_deployment.enabled: true` to deploy monitoring/security agents.
+- Configure Checkmk in `features.agent_deployment.checkmk`:
+  - `package_url`, `server`, `site`, `user`, `password`
+- Configure Wazuh in `features.agent_deployment.wazuh`:
+  - `package_url`, `manager`
+- Deploy only agents with:
+  - `make deploy-tags TAGS=agents`
+
 ### Boot & System
+
 - GRUB password protection (BOOT-5122)
 - Kernel module blacklisting
 - Core dump prevention
 
 ### Network
+
 - Disabled protocols: DCCP, SCTP, RDS, TIPC
 - Hardened sysctl network parameters
 - SSH hardening (10+ configurations)
 
 ### Authentication & Access
+
 - Password aging and complexity enforcement
 - PAM-based password quality
 - Legal banners for login interfaces
 - Restrictive umask (027)
 
 ### Auditing & Monitoring
+
 - Comprehensive auditd rules
 - Process accounting (acct)
 - System activity monitoring (sysstat)
@@ -168,10 +228,12 @@ PRISM/
 - Package integrity verification (debsums)
 
 ### Package Management
+
 - Automated security updates (unattended-upgrades)
 - Package verification (debsums, apt-show-versions)
 
 ### Physical Security
+
 - USB storage blocking
 - FireWire device restrictions
 
@@ -186,6 +248,7 @@ make validate          # Run pre-flight validation
 make check             # Run syntax check and validation
 make deploy            # Deploy full hardening
 make deploy-tags       # Deploy specific components (TAGS=ssh,firewall)
+make deploy-tags       # Deploy performance tuning only (TAGS=performance)
 make dry-run           # Test deployment without changes
 make diff              # Show what would change
 make list-tags         # List all available tags
@@ -200,11 +263,13 @@ make init-inventory    # Create inventory.ini template
 ### Pre-flight Validation
 
 Always run validation before deployment:
+
 ```bash
 make validate
 ```
 
 This checks:
+
 - Ansible version compatibility
 - Configuration file validity
 - OS compatibility (Debian 12)
@@ -220,28 +285,42 @@ This checks:
 ### Common Issues
 
 **1. Configuration not loaded**
+
 ```
 Error: features is not defined
 ```
+
 Solution: Ensure you're passing the config file with `-e "@config.yml"`
 
 **2. SSH connection issues**
+
 ```
 Permission denied (publickey,password)
 ```
+
 Solution: Use `-k` flag for password authentication or configure SSH keys
 
 **3. Privilege escalation fails**
+
 ```
 Missing sudo password
 ```
+
 Solution: Use `-K` flag or configure passwordless sudo
 
 **4. Firewall locks you out**
+
 ```
 Unable to connect after firewall configuration
 ```
+
 Prevention: Always ensure SSH port is allowed before setting default_target to DROP
+
+**5. Networking changes are not applied**
+`features.networking.enabled` is disabled by default. Set it to `true` before deploying network changes.
+
+**6. Make-unique tasks do not run**
+`features.make_unique.enabled` is disabled by default because it is intended for one-time imaging/clone workflows.
 
 ### Getting Help
 
@@ -253,6 +332,7 @@ Prevention: Always ensure SSH port is allowed before setting default_target to D
 ## Contributing
 
 We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for:
+
 - Development workflow
 - Coding standards
 - Testing requirements

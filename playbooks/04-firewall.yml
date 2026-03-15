@@ -7,6 +7,19 @@
       ansible.builtin.import_tasks: handlers/main.yml
 
   tasks:
+    - name: Skip firewall configuration on container targets
+      ansible.builtin.debug:
+        msg: "Skipping firewalld configuration because target type is resolved as container and features.target.container_support.firewall is false."
+      when:
+        - prism_is_container
+        - not prism_container_firewall_enabled
+
+    - name: End firewall play on container targets
+      ansible.builtin.meta: end_play
+      when:
+        - prism_is_container
+        - not prism_container_firewall_enabled
+
     - name: Validate firewall configuration
       ansible.builtin.assert:
         that:
@@ -68,6 +81,63 @@
         immediate: true
       loop: "{{ features.firewall.allowed_ports | default([]) }}"
       when: features.firewall.enabled | default(false)
+
+    - name: Resolve Checkmk server hostname
+      ansible.builtin.command: >-
+        getent ahostsv4 {{ (features.agent_deployment.checkmk.server | default('')) | regex_replace(':.*$', '') }}
+      register: prism_checkmk_server_resolution
+      changed_when: false
+      failed_when:
+        - prism_checkmk_server_resolution.rc != 0
+        - prism_checkmk_server_resolution.stdout_lines | length == 0
+      when:
+        - features.firewall.enabled | default(false)
+        - features.agent_deployment.enabled | default(false)
+        - features.agent_deployment.checkmk.enabled | default(false)
+        - features.agent_deployment.checkmk.configure_firewall | default(true)
+
+    - name: Build Checkmk server IP list
+      ansible.builtin.set_fact:
+        prism_checkmk_server_ips: >-
+          {{
+            prism_checkmk_server_resolution.stdout_lines
+            | map('regex_replace', '\\s+.*$', '')
+            | unique
+            | list
+          }}
+      when:
+        - features.firewall.enabled | default(false)
+        - features.agent_deployment.enabled | default(false)
+        - features.agent_deployment.checkmk.enabled | default(false)
+        - features.agent_deployment.checkmk.configure_firewall | default(true)
+
+    - name: Remove broad Checkmk agent port rule
+      ansible.posix.firewalld:
+        port: "{{ features.agent_deployment.checkmk.agent_port | default(6556) }}/tcp"
+        zone: "{{ features.firewall.default_zone | default('public') }}"
+        state: disabled
+        permanent: true
+        immediate: true
+      when:
+        - features.firewall.enabled | default(false)
+        - features.agent_deployment.enabled | default(false)
+        - features.agent_deployment.checkmk.enabled | default(false)
+        - features.agent_deployment.checkmk.configure_firewall | default(true)
+
+    - name: Allow Checkmk agent traffic only from Checkmk server IPs
+      ansible.posix.firewalld:
+        rich_rule: "rule family='ipv4' source address='{{ item }}' port port='{{ features.agent_deployment.checkmk.agent_port | default(6556) }}' protocol='tcp' accept"
+        zone: "{{ features.firewall.default_zone | default('public') }}"
+        state: enabled
+        permanent: true
+        immediate: true
+      loop: "{{ prism_checkmk_server_ips | default([]) }}"
+      when:
+        - features.firewall.enabled | default(false)
+        - features.agent_deployment.enabled | default(false)
+        - features.agent_deployment.checkmk.enabled | default(false)
+        - features.agent_deployment.checkmk.configure_firewall | default(true)
+        - prism_checkmk_server_ips | default([]) | length > 0
 
     - name: Configure rich rules
       ansible.posix.firewalld:

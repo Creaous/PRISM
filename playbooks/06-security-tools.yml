@@ -8,11 +8,12 @@
     - name: Install essential security packages
       ansible.builtin.include_tasks: tasks/install_packages.yml
       vars:
-        package_list:
-          - debsums
-          - apt-show-versions
-          - unattended-upgrades
-          - fail2ban
+        package_list: >-
+          {{
+            ['apt-show-versions', 'unattended-upgrades']
+            + (['debsums'] if prism_effective_debsums_enabled else [])
+            + (['fail2ban'] if prism_effective_fail2ban_enabled else [])
+          }}
       when: features.security_tools.enabled | default(true)
 
     - name: Configure unattended-upgrades
@@ -40,7 +41,7 @@
         mode: "{{ default_file_mode }}"
         owner: "{{ default_root_owner }}"
         group: "{{ default_root_group }}"
-      when: features.security_tools.debsums_check | default(true)
+      when: prism_effective_debsums_enabled
 
     - name: Configure fail2ban jail for SSH
       ansible.builtin.copy:
@@ -57,7 +58,7 @@
         mode: "{{ default_file_mode }}"
         owner: "{{ default_root_owner }}"
         group: "{{ default_root_group }}"
-      when: features.security_tools.fail2ban_enabled | default(true)
+      when: prism_effective_fail2ban_enabled
       notify: Restart fail2ban
 
     - name: Ensure fail2ban is enabled and started
@@ -65,4 +66,4 @@
         name: fail2ban
         enabled: true
         state: started
-      when: features.security_tools.fail2ban_enabled | default(true)
+      when: prism_effective_fail2ban_enabled
