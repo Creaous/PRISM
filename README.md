@@ -83,7 +83,8 @@ make dry-run
 make deploy-tags TAGS=ssh,firewall
 # Available tags: grub, boot, hardening, kernel, sysctl, authentication,
 #                 ssh, access, firewall, network, audit, logging,
-#                 monitoring, security-tools, tools, users, accounts, motd, ui,
+#                 monitoring, security-tools, tools, docker, containers, compose,
+#                 users, accounts, motd, ui,
 #                 performance, cpu, memory
 ```
 
@@ -128,6 +129,7 @@ PRISM/
 │   ├── 10-network-configuration.yml
 │   ├── 11-resource-optimization.yml
 │   ├── 12-agent-deployment.yml
+│   ├── 13-docker-deployment.yml
 │   ├── handlers/
 │   │   └── main.yml          # Shared handlers
 │   ├── tasks/
@@ -153,6 +155,7 @@ PRISM/
 - **VM Optimized**: Tuned for virtualized environments
 - **Resource Optimization**: Lower RAM pressure with zram and tuned runtime memory settings
 - **Agent Auto-Deployment**: Automated installation and registration for Checkmk and Wazuh agents
+- **Container Runtime Deployment**: Automated secure Docker Engine and Docker Compose plugin installation
 - **Serial Console**: Configurable remote access
 - **Idempotent**: Safe for repeated execution
 - **Drop-in Ready**: Compatible with existing infrastructure
@@ -200,6 +203,15 @@ Container behavior highlights:
 - Deploy only agents with:
   - `make deploy-tags TAGS=agents`
 
+### Docker Deployment
+
+- Enable `features.docker_deployment.enabled: true` to deploy Docker CE and Docker Compose plugin.
+- PRISM installs Docker from the official Docker Debian repository.
+- Secure defaults are applied in `/etc/docker/daemon.json` when `features.docker_deployment.manage_daemon_config: true`.
+- Optional docker group membership can be assigned via `features.docker_deployment.users`.
+- Deploy only container runtime setup with:
+  - `make deploy-tags TAGS=docker`
+
 ### Boot & System
 
 - GRUB password protection (BOOT-5122)
@@ -211,6 +223,12 @@ Container behavior highlights:
 - Disabled protocols: DCCP, SCTP, RDS, TIPC
 - Hardened sysctl network parameters
 - SSH hardening (10+ configurations)
+- Selectable networking backend via `features.networking.backend`:
+  - `networkmanager` for feature-rich management
+  - `ifupdown` for lightweight static networking
+- Optional automatic gateway derivation from interface CIDR via `features.networking.auto_gateway`
+- Optional DNS automation that uses the derived router IP plus `features.networking.dns_extra`
+- Managed `systemd-resolved` setup via `features.networking.systemd_resolved`
 
 ### Authentication & Access
 

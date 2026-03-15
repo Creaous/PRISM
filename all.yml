@@ -52,6 +52,11 @@
   when: features.agent_deployment.enabled | default(false)
   tags: ["agents", "monitoring", "wazuh", "checkmk"]
 
+- name: Deploy secure Docker runtime
+  ansible.builtin.import_playbook: playbooks/13-docker-deployment.yml
+  when: features.docker_deployment.enabled | default(false)
+  tags: ["docker", "containers", "compose"]
+
 - name: Manage system users
   ansible.builtin.import_playbook: playbooks/07-user-management.yml
   when: features.user_management.enabled | default(false)
@@ -69,5 +74,7 @@
 
 - name: Configure networking
   ansible.builtin.import_playbook: playbooks/10-network-configuration.yml
-  when: features.networking.enabled | default(false)
+  when: >-
+    (features.networking.enabled | default(false)) or
+    (features.system.hostname is defined and (features.system.hostname | length > 0))
   tags: ["network", "hostname"]

@@ -69,6 +69,7 @@ make clean           # Remove temporary files
 | `firewall`, `network`                      | Firewall            |
 | `audit`, `logging`, `monitoring`           | Logging             |
 | `security-tools`, `tools`                  | Security tools      |
+| `docker`, `containers`, `compose`          | Docker deployment   |
 | `users`, `accounts`                        | User management     |
 | `motd`, `ui`                               | MOTD                |
 | `hostname`                                 | Network config      |
@@ -109,6 +110,11 @@ features.agent_deployment.enabled: false
 features.agent_deployment.checkmk.enabled: false
 features.agent_deployment.wazuh.enabled: false
 
+# Secure Docker runtime deployment
+features.docker_deployment.enabled: false
+features.docker_deployment.install_compose_plugin: true
+features.docker_deployment.manage_daemon_config: true
+
 # Resource optimization
 features.resource_optimization.enabled: true
 features.resource_optimization.zram_enabled: true
@@ -117,6 +123,9 @@ features.resource_optimization.vm_swappiness: 20
 
 # Opt-in for disruptive operations
 features.networking.enabled: false
+features.networking.auto_gateway: true
+features.networking.auto_dns: true
+features.networking.systemd_resolved.enabled: true
 features.make_unique.enabled: false
 ```
 

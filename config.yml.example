@@ -36,6 +36,22 @@ features:
       package_url: "https://packages.wazuh.com/4.x/apt/pool/main/w/wazuh-agent/wazuh-agent_4.14.3-1_amd64.deb"
       manager: "wazuh.internal"
 
+  # Secure Docker and Docker Compose deployment
+  docker_deployment:
+    enabled: false
+    allow_container_targets: false  # Set true only when nested container runtimes are intended
+    install_compose_plugin: true
+    manage_daemon_config: true
+    users: []  # Example: ["prism-operator"]
+    daemon:
+      icc: false
+      live_restore: true
+      log_driver: json-file
+      log_max_size: "10m"
+      log_max_file: "3"
+      no_new_privileges: true
+      userland_proxy: false
+
   # System configuration
   system:
     hostname: "{{ system_hostname }}"  # Set system hostname (leave empty to skip hostname change)
@@ -43,10 +59,26 @@ features:
   # Networking configuration
   networking:
     enabled: false
+    backend: ifupdown # networkmanager (feature-rich) or ifupdown (lightweight)
     ifname: enp6s18
     ip4: "{{ system_ip4 }}"
-    gw4: 192.168.1.1
-    dns: "192.168.1.1 9.9.9.9 1.1.1.2 149.112.112.112 1.0.0.2"
+    auto_gateway: true  # Derive gateway from ip4 CIDR (first usable host in subnet)
+    gw4: 192.168.1.1  # Used only when auto_gateway is false
+    auto_dns: true  # Use router IP as DNS and append dns_extra
+    dns: ""  # Used only when auto_dns is false (space-separated or list)
+    dns_extra:
+      - 9.9.9.9
+      - 1.1.1.2
+      - 149.112.112.112
+      - 1.0.0.2
+    systemd_resolved:
+      enabled: true
+      stub_listener: true
+      fallback_dns:
+        - 9.9.9.9
+        - 1.1.1.1
+      dnssec: allow-downgrade
+      dnsovertls: opportunistic
   
   apt_proxy: "" # Leave blank to disable apt-cacher-ng usage
 

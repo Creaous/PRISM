@@ -120,5 +120,5 @@
 
           # Make configuration immutable
           -e 2
-          when: prism_enable_auditd
-          notify: Restart auditd
+      when: prism_enable_auditd
+      notify: Restart auditd

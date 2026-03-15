@@ -1,0 +1,11 @@
+{
+  "icc": {{ (features.docker_deployment.daemon.icc | default(false) | bool) | lower }},
+  "live-restore": {{ (features.docker_deployment.daemon.live_restore | default(true) | bool) | lower }},
+  "log-driver": "{{ features.docker_deployment.daemon.log_driver | default('json-file') }}",
+  "log-opts": {
+    "max-size": "{{ features.docker_deployment.daemon.log_max_size | default('10m') }}",
+    "max-file": "{{ features.docker_deployment.daemon.log_max_file | default('3') }}"
+  },
+  "no-new-privileges": {{ (features.docker_deployment.daemon.no_new_privileges | default(true) | bool) | lower }},
+  "userland-proxy": {{ (features.docker_deployment.daemon.userland_proxy | default(false) | bool) | lower }}
+}

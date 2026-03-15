@@ -1,0 +1,10 @@
+[Resolve]
+DNS={{ prism_resolved_primary_dns }}
+{% if prism_resolved_fallback_dns_list is defined and (prism_resolved_fallback_dns_list | length > 0) %}
+FallbackDNS={{ prism_resolved_fallback_dns_list | join(' ') }}
+{% endif %}
+DNSStubListener={{ 'yes' if (features.networking.systemd_resolved.stub_listener | default(true)) else 'no' }}
+{% set prism_dnssec_value = (features.networking.systemd_resolved.dnssec | default('allow-downgrade') | string | lower) %}
+DNSSEC={{ 'no' if prism_dnssec_value in ['false', 'no', '0'] else ('yes' if prism_dnssec_value in ['true', 'yes', '1'] else prism_dnssec_value) }}
+{% set prism_dnsovertls_value = (features.networking.systemd_resolved.dnsovertls | default('opportunistic') | string | lower) %}
+DNSOverTLS={{ 'no' if prism_dnsovertls_value in ['false', 'no', '0'] else ('yes' if prism_dnsovertls_value in ['true', 'yes', '1'] else prism_dnsovertls_value) }}

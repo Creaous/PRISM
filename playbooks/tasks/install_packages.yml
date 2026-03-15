@@ -2,7 +2,13 @@
 # Reusable task to install packages with retry logic
 # Usage: include_tasks with vars: package_list (array of package names)
 
-- name: "Install {{ package_list | join(', ') }}"
+- name: Validate supported OS family for package installation
+  ansible.builtin.assert:
+    that:
+      - ansible_facts['os_family'] in ['Debian', 'Alpine']
+    fail_msg: "Unsupported OS family '{{ ansible_facts['os_family'] }}' for tasks/install_packages.yml"
+
+- name: "Install {{ package_list | join(', ') }} on Debian"
   ansible.builtin.apt:
     name: "{{ package_list }}"
     state: present
@@ -11,5 +17,16 @@
   when: ansible_facts['os_family'] == "Debian"
   retries: "{{ package_retry_count | default(3) }}"
   delay: "{{ package_retry_delay | default(5) }}"
-  register: package_install_result
-  until: package_install_result is success
+  register: package_install_result_debian
+  until: package_install_result_debian is success
+
+- name: "Install {{ package_list | join(', ') }} on Alpine"
+  community.general.apk:
+    name: "{{ package_list }}"
+    state: present
+    update_cache: "{{ update_cache | default(true) }}"
+  when: ansible_facts['os_family'] == "Alpine"
+  retries: "{{ package_retry_count | default(3) }}"
+  delay: "{{ package_retry_delay | default(5) }}"
+  register: package_install_result_alpine
+  until: package_install_result_alpine is success

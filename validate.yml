@@ -49,8 +49,8 @@
           - ansible_facts['distribution'] == "Debian"
         fail_msg: |
           Unsupported OS: {{ ansible_facts['distribution'] }} {{ ansible_facts['distribution_version'] }}
-          PRISM is tested on Debian 12
-        success_msg: "OS is {{ ansible_facts['distribution'] }} {{ ansible_facts['distribution_version'] }}"
+          PRISM currently supports Debian 12 targets for full hardening flows
+        success_msg: "OS is {{ ansible_facts['distribution'] }} {{ ansible_facts['distribution_version'] }} (supported)"
 
     - name: Check Python 3 availability
       ansible.builtin.command: python3 --version
@@ -183,6 +183,20 @@
         - features.agent_deployment.wazuh.enabled | default(false)
       run_once: true
 
+    - name: Validate Docker deployment settings (if enabled)
+      ansible.builtin.assert:
+        that:
+          - features.docker_deployment.install_compose_plugin is defined
+          - features.docker_deployment.manage_daemon_config is defined
+          - (features.docker_deployment.users | default([])) is iterable
+          - (features.docker_deployment.daemon.log_max_size | default('10m') | string) | length > 0
+          - (features.docker_deployment.daemon.log_max_file | default('3') | string) | length > 0
+        fail_msg: "Invalid Docker deployment settings in features.docker_deployment"
+        success_msg: "Docker deployment settings are valid"
+      when:
+        - features.docker_deployment.enabled | default(false)
+      run_once: true
+
     - name: Warn about SSH port change
       ansible.builtin.debug:
         msg: |
@@ -204,6 +218,51 @@
         - features.firewall.enabled | default(false)
       run_once: true
 
+    - name: Validate networking backend configuration
+      ansible.builtin.assert:
+        that:
+          - (features.networking.backend | default('networkmanager') | lower) in ['networkmanager', 'ifupdown']
+        fail_msg: "Invalid features.networking.backend. Allowed values: networkmanager, ifupdown"
+        success_msg: "Networking backend configuration is valid"
+      when:
+        - features.networking.enabled | default(false)
+      run_once: true
+
+    - name: Validate networking auto-gateway settings
+      ansible.builtin.assert:
+        that:
+          - (features.networking.ip4 | string) is search('/[0-9]+$')
+        fail_msg: "features.networking.auto_gateway requires features.networking.ip4 in CIDR format, for example 192.168.10.20/24"
+        success_msg: "Networking auto-gateway settings are valid"
+      when:
+        - features.networking.enabled | default(false)
+        - features.networking.auto_gateway | default(true)
+      run_once: true
+
+    - name: Validate networking manual gateway settings
+      ansible.builtin.assert:
+        that:
+          - features.networking.gw4 is defined
+          - (features.networking.gw4 | string | length) > 0
+        fail_msg: "features.networking.gw4 must be set when features.networking.auto_gateway is false"
+        success_msg: "Networking manual gateway settings are valid"
+      when:
+        - features.networking.enabled | default(false)
+        - not (features.networking.auto_gateway | default(true))
+      run_once: true
+
+    - name: Validate systemd-resolved settings
+      ansible.builtin.assert:
+        that:
+          - (features.networking.systemd_resolved.dnssec | default('allow-downgrade') | string | lower) in ['yes', 'no', 'allow-downgrade', 'true', 'false', '1', '0']
+          - (features.networking.systemd_resolved.dnsovertls | default('opportunistic') | string | lower) in ['yes', 'no', 'opportunistic', 'true', 'false', '1', '0']
+        fail_msg: "Invalid features.networking.systemd_resolved settings"
+        success_msg: "systemd-resolved settings are valid"
+      when:
+        - features.networking.enabled | default(false)
+        - features.networking.systemd_resolved.enabled | default(true)
+      run_once: true
+
     - name: Warn when firewall feature is enabled on containers
       ansible.builtin.debug:
         msg: "INFO: features.firewall.enabled is true; set features.target.container_support.firewall=true to apply on container targets."
@@ -222,16 +281,35 @@
         - not prism_container_audit_enabled
       run_once: true
 
-    - name: Check available disk space
-      ansible.builtin.shell: df -h / | tail -1 | awk '{print $5}' | sed 's/%//'
-      register: disk_usage
-      changed_when: false
-      become: true
+    - name: Extract root mount facts
+      ansible.builtin.set_fact:
+        prism_root_mount: "{{ (ansible_facts.mounts | selectattr('mount', 'equalto', '/') | list | first) | default({}) }}"
+
+    - name: Calculate root disk usage percentage
+      ansible.builtin.set_fact:
+        prism_root_disk_usage_pct: >-
+          {{
+            (
+              100
+              - ((prism_root_mount.size_available | default(0) | float) * 100 / (prism_root_mount.size_total | default(1) | float))
+            ) | round(0, 'common') | int
+          }}
+      when:
+        - prism_root_mount is mapping
+        - (prism_root_mount.size_total | default(0) | int) > 0
+
+    - name: Ensure root mount facts are available
+      ansible.builtin.assert:
+        that:
+          - prism_root_mount is mapping
+          - (prism_root_mount.size_total | default(0) | int) > 0
+        fail_msg: "Unable to determine root filesystem usage from gathered facts"
+        success_msg: "Root filesystem usage facts collected successfully"
 
     - name: Warn if disk space is low
       ansible.builtin.debug:
-        msg: "WARNING: Disk usage is at {{ disk_usage.stdout }}%"
-      when: disk_usage.stdout | int > 80
+        msg: "WARNING: Disk usage is at {{ prism_root_disk_usage_pct }}%"
+      when: prism_root_disk_usage_pct | int > 80
 
     - name: Check available memory
       ansible.builtin.command: free -m
@@ -241,7 +319,7 @@
     - name: Display system resources
       ansible.builtin.debug:
         msg:
-          - "Disk usage: {{ disk_usage.stdout }}%"
+          - "Disk usage: {{ prism_root_disk_usage_pct }}%"
           - "Memory info:"
           - "{{ memory_info.stdout_lines }}"
 

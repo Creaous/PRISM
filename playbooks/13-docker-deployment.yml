@@ -1,0 +1,158 @@
+---
+- name: Deploy secure Docker and Docker Compose
+  hosts: all
+  become: true
+
+  handlers:
+    - name: Import shared handlers
+      ansible.builtin.import_tasks: handlers/main.yml
+
+  tasks:
+    - name: Skip Docker deployment on container targets
+      ansible.builtin.debug:
+        msg: "Skipping Docker deployment because target type is resolved as container and features.docker_deployment.allow_container_targets is false."
+      when:
+        - prism_is_container
+        - not (features.docker_deployment.allow_container_targets | default(false) | bool)
+
+    - name: End Docker deployment play on unsupported container targets
+      ansible.builtin.meta: end_play
+      when:
+        - prism_is_container
+        - not (features.docker_deployment.allow_container_targets | default(false) | bool)
+
+    - name: Validate Docker deployment settings
+      ansible.builtin.assert:
+        that:
+          - (features.docker_deployment.daemon.log_max_size | default('10m') | string) | length > 0
+          - (features.docker_deployment.daemon.log_max_file | default('3') | string) | length > 0
+        fail_msg: "Invalid Docker daemon logging settings in features.docker_deployment.daemon"
+      when: features.docker_deployment.enabled | default(false)
+
+    - name: Map architecture for Docker repository
+      ansible.builtin.set_fact:
+        prism_docker_arch_map:
+          x86_64: amd64
+          aarch64: arm64
+          armv7l: armhf
+          armv6l: armhf
+
+    - name: Set Docker repository architecture
+      ansible.builtin.set_fact:
+        prism_docker_arch: "{{ prism_docker_arch_map.get(ansible_facts.architecture, ansible_facts.architecture) }}"
+
+    - name: Install Docker repository prerequisites
+      ansible.builtin.include_tasks: tasks/install_packages.yml
+      vars:
+        package_list:
+          - ca-certificates
+          - curl
+          - gnupg
+      when: features.docker_deployment.enabled | default(false)
+
+    - name: Ensure apt keyrings directory exists
+      ansible.builtin.file:
+        path: /etc/apt/keyrings
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+      when: features.docker_deployment.enabled | default(false)
+
+    - name: Download Docker GPG key
+      ansible.builtin.get_url:
+        url: https://download.docker.com/linux/debian/gpg
+        dest: /etc/apt/keyrings/docker.asc
+        mode: "0644"
+        force: true
+      when: features.docker_deployment.enabled | default(false)
+
+    - name: Configure Docker apt repository
+      ansible.builtin.apt_repository:
+        repo: "deb [arch={{ prism_docker_arch }} signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian {{ ansible_facts.distribution_release }} stable"
+        filename: docker
+        state: present
+      when: features.docker_deployment.enabled | default(false)
+
+    - name: Install Docker Engine packages
+      ansible.builtin.include_tasks: tasks/install_packages.yml
+      vars:
+        package_list: >-
+          {{
+            [
+              'docker-ce',
+              'docker-ce-cli',
+              'containerd.io',
+              'docker-buildx-plugin'
+            ]
+            +
+            (
+              ['docker-compose-plugin']
+              if (features.docker_deployment.install_compose_plugin | default(true) | bool)
+              else []
+            )
+          }}
+      when: features.docker_deployment.enabled | default(false)
+
+    - name: Ensure Docker daemon configuration directory exists
+      ansible.builtin.file:
+        path: /etc/docker
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+      when:
+        - features.docker_deployment.enabled | default(false)
+        - features.docker_deployment.manage_daemon_config | default(true)
+
+    - name: Deploy secure Docker daemon configuration
+      ansible.builtin.template:
+        src: templates/docker-daemon.json.j2
+        dest: /etc/docker/daemon.json
+        owner: root
+        group: root
+        mode: "0644"
+      notify: Restart Docker service
+      when:
+        - features.docker_deployment.enabled | default(false)
+        - features.docker_deployment.manage_daemon_config | default(true)
+
+    - name: Ensure containerd service is enabled and started
+      ansible.builtin.systemd:
+        name: containerd
+        enabled: true
+        state: started
+      when: features.docker_deployment.enabled | default(false)
+
+    - name: Ensure docker service is enabled and started
+      ansible.builtin.systemd:
+        name: docker
+        enabled: true
+        state: started
+      when: features.docker_deployment.enabled | default(false)
+
+    - name: Restrict docker socket permissions
+      ansible.builtin.file:
+        path: /var/run/docker.sock
+        owner: root
+        group: docker
+        mode: "0660"
+      when: features.docker_deployment.enabled | default(false)
+
+    - name: Add configured users to docker group
+      ansible.builtin.user:
+        name: "{{ item }}"
+        groups: docker
+        append: true
+      loop: "{{ features.docker_deployment.users | default([]) }}"
+      when:
+        - features.docker_deployment.enabled | default(false)
+        - (features.docker_deployment.users | default([])) | length > 0
+
+    - name: Verify Docker Compose plugin is available
+      ansible.builtin.command: docker compose version
+      register: prism_docker_compose_version
+      changed_when: false
+      when:
+        - features.docker_deployment.enabled | default(false)
+        - features.docker_deployment.install_compose_plugin | default(true)

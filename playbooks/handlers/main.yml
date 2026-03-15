@@ -50,3 +50,8 @@
     name: zramswap.service
     state: restarted
   failed_when: false
+
+- name: Restart Docker service
+  ansible.builtin.systemd:
+    name: docker
+    state: restarted

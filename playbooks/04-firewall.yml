@@ -101,7 +101,8 @@
         prism_checkmk_server_ips: >-
           {{
             prism_checkmk_server_resolution.stdout_lines
-            | map('regex_replace', '\\s+.*$', '')
+            | map('regex_search', '^[0-9]+(?:\.[0-9]+){3}')
+            | reject('equalto', None)
             | unique
             | list
           }}

@@ -66,6 +66,17 @@
         - features.agent_deployment.checkmk.register | default(true)
         - features.agent_deployment.checkmk.force_reregister | default(false)
 
+    - name: Check current Checkmk registration status
+      ansible.builtin.command: cmk-agent-ctl status
+      register: prism_checkmk_status_before
+      changed_when: false
+      failed_when: false
+      no_log: true
+      when:
+        - features.agent_deployment.enabled | default(false)
+        - features.agent_deployment.checkmk.enabled | default(false)
+        - features.agent_deployment.checkmk.register | default(true)
+
     - name: Register Checkmk agent
       ansible.builtin.command: >-
         cmk-agent-ctl register
@@ -76,7 +87,34 @@
         --password {{ features.agent_deployment.checkmk.password }}
       args:
         creates: /etc/check_mk/.prism_registered
+      register: prism_checkmk_register_result
+      changed_when: prism_checkmk_register_result.rc == 0
+      failed_when: false
       no_log: true
+      when:
+        - features.agent_deployment.enabled | default(false)
+        - features.agent_deployment.checkmk.enabled | default(false)
+        - features.agent_deployment.checkmk.register | default(true)
+        - not (prism_checkmk_registration_marker.stat.exists | default(false))
+        - (prism_checkmk_status_before.rc | default(1)) != 0
+
+    - name: Check Checkmk registration status after registration attempt
+      ansible.builtin.command: cmk-agent-ctl status
+      register: prism_checkmk_status_after
+      changed_when: false
+      failed_when: false
+      no_log: true
+      when:
+        - features.agent_deployment.enabled | default(false)
+        - features.agent_deployment.checkmk.enabled | default(false)
+        - features.agent_deployment.checkmk.register | default(true)
+        - not (prism_checkmk_registration_marker.stat.exists | default(false))
+
+    - name: Ensure Checkmk agent is registered
+      ansible.builtin.assert:
+        that:
+          - (prism_checkmk_status_before.rc | default(1)) == 0 or (prism_checkmk_status_after.rc | default(1)) == 0
+        fail_msg: "Checkmk agent registration did not complete successfully. Verify server/site/user/password and connectivity."
       when:
         - features.agent_deployment.enabled | default(false)
         - features.agent_deployment.checkmk.enabled | default(false)
@@ -95,6 +133,7 @@
         - features.agent_deployment.checkmk.enabled | default(false)
         - features.agent_deployment.checkmk.register | default(true)
         - not (prism_checkmk_registration_marker.stat.exists | default(false))
+        - (prism_checkmk_status_before.rc | default(1)) == 0 or (prism_checkmk_status_after.rc | default(1)) == 0
 
     - name: Remove downloaded Checkmk package
       ansible.builtin.file:
