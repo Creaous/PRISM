@@ -254,8 +254,12 @@
     - name: Validate systemd-resolved settings
       ansible.builtin.assert:
         that:
-          - (features.networking.systemd_resolved.dnssec | default('allow-downgrade') | string | lower) in ['yes', 'no', 'allow-downgrade', 'true', 'false', '1', '0']
-          - (features.networking.systemd_resolved.dnsovertls | default('opportunistic') | string | lower) in ['yes', 'no', 'opportunistic', 'true', 'false', '1', '0']
+          - >-
+            (features.networking.systemd_resolved.dnssec | default('allow-downgrade') | string | lower)
+            in ['yes', 'no', 'allow-downgrade', 'true', 'false', '1', '0']
+          - >-
+            (features.networking.systemd_resolved.dnsovertls | default('opportunistic') | string | lower)
+            in ['yes', 'no', 'opportunistic', 'true', 'false', '1', '0']
         fail_msg: "Invalid features.networking.systemd_resolved settings"
         success_msg: "systemd-resolved settings are valid"
       when:

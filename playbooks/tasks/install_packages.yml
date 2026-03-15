@@ -8,7 +8,7 @@
       - ansible_facts['os_family'] in ['Debian', 'Alpine']
     fail_msg: "Unsupported OS family '{{ ansible_facts['os_family'] }}' for tasks/install_packages.yml"
 
-- name: "Install {{ package_list | join(', ') }} on Debian"
+- name: Install packages on Debian
   ansible.builtin.apt:
     name: "{{ package_list }}"
     state: present
@@ -20,7 +20,7 @@
   register: package_install_result_debian
   until: package_install_result_debian is success
 
-- name: "Install {{ package_list | join(', ') }} on Alpine"
+- name: Install packages on Alpine
   community.general.apk:
     name: "{{ package_list }}"
     state: present
