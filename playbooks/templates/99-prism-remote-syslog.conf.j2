@@ -1,0 +1,13 @@
+# Managed by PRISM - remote syslog forwarding
+*.* action(
+  type="omfwd"
+  target="{{ features.audit_logging.syslog_forwarding.host }}"
+  port="{{ features.audit_logging.syslog_forwarding.port | default(514) | int }}"
+  protocol="{{ features.audit_logging.syslog_forwarding.protocol | default('udp') | lower }}"
+{% if features.audit_logging.syslog_forwarding.rfc5424 | default(true) | bool %}
+  template="RSYSLOG_SyslogProtocol23Format"
+{% endif %}
+  action.resumeRetryCount="-1"
+  queue.type="linkedList"
+  queue.size="10000"
+)

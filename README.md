@@ -243,6 +243,7 @@ Container behavior highlights:
 - Process accounting (acct)
 - System activity monitoring (sysstat)
 - Wazuh-compatible logging
+- Optional remote syslog forwarding via rsyslog (`features.audit_logging.syslog_forwarding`)
 - Package integrity verification (debsums)
 
 ### Package Management

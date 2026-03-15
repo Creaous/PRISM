@@ -202,6 +202,12 @@ features:
   # Audit and logging
   audit_logging:
     enabled: true
+    syslog_forwarding:
+      enabled: false
+      host: ""  # Example: "10.0.0.20" or "logs.internal"
+      port: 514
+      protocol: udp  # udp or tcp
+      rfc5424: true
   
   # Security tools
   security_tools:

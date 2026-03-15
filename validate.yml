@@ -197,6 +197,20 @@
         - features.docker_deployment.enabled | default(false)
       run_once: true
 
+    - name: Validate syslog forwarding settings (if enabled)
+      ansible.builtin.assert:
+        that:
+          - (features.audit_logging.syslog_forwarding.host | default('') | string | length) > 0
+          - (features.audit_logging.syslog_forwarding.port | default(514) | int) > 0
+          - (features.audit_logging.syslog_forwarding.port | default(514) | int) < 65536
+          - (features.audit_logging.syslog_forwarding.protocol | default('udp') | lower) in ['udp', 'tcp']
+        fail_msg: "Invalid features.audit_logging.syslog_forwarding settings"
+        success_msg: "Syslog forwarding settings are valid"
+      when:
+        - features.audit_logging.enabled | default(false)
+        - features.audit_logging.syslog_forwarding.enabled | default(false)
+      run_once: true
+
     - name: Warn about SSH port change
       ansible.builtin.debug:
         msg: |

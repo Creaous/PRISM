@@ -121,6 +121,12 @@ features.resource_optimization.zram_enabled: true
 features.resource_optimization.zram_percent: 25
 features.resource_optimization.vm_swappiness: 20
 
+# Optional remote syslog forwarding
+features.audit_logging.syslog_forwarding.enabled: false
+features.audit_logging.syslog_forwarding.host: "logs.internal"
+features.audit_logging.syslog_forwarding.port: 514
+features.audit_logging.syslog_forwarding.protocol: "udp"
+
 # Opt-in for disruptive operations
 features.networking.enabled: false
 features.networking.auto_gateway: true

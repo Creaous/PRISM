@@ -32,6 +32,7 @@
             )
           }}
         prism_enable_acct: "{{ (not prism_is_container) and ((not prism_wazuh_mode_enabled) or (not prism_wazuh_reduce_redundant)) }}"
+        prism_syslog_forward_enabled: "{{ features.audit_logging.syslog_forwarding.enabled | default(false) | bool }}"
 
     - name: Build effective audit/logging package and service lists
       ansible.builtin.set_fact:
@@ -40,6 +41,7 @@
             (['auditd', 'audispd-plugins'] if prism_enable_auditd else [])
             + (['sysstat'] if prism_enable_sysstat else [])
             + (['acct'] if prism_enable_acct else [])
+            + (['rsyslog'] if prism_syslog_forward_enabled else [])
           }}
         prism_monitoring_services: >-
           {{
@@ -122,3 +124,27 @@
           -e 2
       when: prism_enable_auditd
       notify: Restart auditd
+
+    - name: Configure remote syslog forwarding
+      ansible.builtin.template:
+        src: templates/99-prism-remote-syslog.conf.j2
+        dest: /etc/rsyslog.d/99-prism-remote-syslog.conf
+        owner: "{{ default_root_owner }}"
+        group: "{{ default_root_group }}"
+        mode: "{{ default_file_mode }}"
+      when: prism_syslog_forward_enabled
+      notify: Restart rsyslog
+
+    - name: Remove remote syslog forwarding config when disabled
+      ansible.builtin.file:
+        path: /etc/rsyslog.d/99-prism-remote-syslog.conf
+        state: absent
+      when: not prism_syslog_forward_enabled
+      notify: Restart rsyslog
+
+    - name: Ensure rsyslog service is enabled and started
+      ansible.builtin.systemd:
+        name: rsyslog
+        enabled: true
+        state: started
+      when: prism_syslog_forward_enabled
