@@ -8,6 +8,15 @@
       ansible.builtin.import_tasks: handlers/main.yml
 
   tasks:
+    - name: Skip Docker deployment on hosts with feature disabled
+      ansible.builtin.debug:
+        msg: "Skipping Docker deployment because features.docker_deployment.enabled is false for this host."
+      when: not (features.docker_deployment.enabled | default(false))
+
+    - name: End Docker deployment play on hosts with feature disabled
+      ansible.builtin.meta: end_host
+      when: not (features.docker_deployment.enabled | default(false))
+
     - name: Skip Docker deployment on container targets
       ansible.builtin.debug:
         msg: "Skipping Docker deployment because target type is resolved as container and features.docker_deployment.allow_container_targets is false."

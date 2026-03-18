@@ -4,6 +4,15 @@
   become: true
 
   tasks:
+    - name: Resolve agent registration hostname
+      ansible.builtin.set_fact:
+        prism_agent_registration_hostname: >-
+          {{
+            features.agent_deployment.agent_hostname
+            | default(features.system.hostname | default(system_hostname | default(ansible_facts.hostname)))
+          }}
+      when: features.agent_deployment.enabled | default(false)
+
     - name: Validate Checkmk agent settings
       ansible.builtin.assert:
         that:
@@ -80,7 +89,7 @@
     - name: Register Checkmk agent
       ansible.builtin.command: >-
         cmk-agent-ctl register
-        --hostname {{ features.agent_deployment.checkmk.hostname | default(ansible_facts.hostname) }}
+        --hostname {{ features.agent_deployment.checkmk.hostname | default(prism_agent_registration_hostname) }}
         --server {{ features.agent_deployment.checkmk.server }}
         --site {{ features.agent_deployment.checkmk.site }}
         --user {{ features.agent_deployment.checkmk.user }}
@@ -178,6 +187,7 @@
         state: present
       environment:
         WAZUH_MANAGER: "{{ features.agent_deployment.wazuh.manager }}"
+        WAZUH_AGENT_NAME: "{{ features.agent_deployment.wazuh.agent_name | default(prism_agent_registration_hostname) }}"
       when:
         - features.agent_deployment.enabled | default(false)
         - features.agent_deployment.wazuh.enabled | default(false)

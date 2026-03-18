@@ -115,6 +115,13 @@ features.docker_deployment.enabled: false
 features.docker_deployment.install_compose_plugin: true
 features.docker_deployment.manage_daemon_config: true
 
+# Host-level override example (host_vars/<host>.yml)
+features.docker_deployment.enabled: false
+
+# Plaintext password options
+features.grub_password.plaintext: ""
+features.user_management.root_password_plaintext: ""
+
 # Resource optimization
 features.resource_optimization.enabled: true
 features.resource_optimization.zram_enabled: true
@@ -222,9 +229,9 @@ make deploy-tags TAGS=grub
 # Disable firewall temporarily
 systemctl stop firewalld
 
-# Fix configuration in config.yml
+# Fix configuration in group_vars/ or host_vars/
 # Redeploy with correct settings
-ansible-playbook all.yml --tags firewall -e "@config.yml"
+ansible-playbook -i inventory.ini all.yml --tags firewall
 ```
 
 ### GRUB Password Forgotten
@@ -257,11 +264,12 @@ tail -f ansible.log
 ### Variables Not Loading
 
 ```bash
-# Ensure using -e flag
-ansible-playbook all.yml -e "@config.yml"
+# Verify inventory variable files exist
+ls group_vars/
+ls host_vars/
 
-# Or use make (handles automatically)
-make deploy
+# Check variables for a host
+ansible-inventory -i inventory.ini --host <hostname>
 ```
 
 ### Module Not Found

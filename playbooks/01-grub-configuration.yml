@@ -16,13 +16,42 @@
       ansible.builtin.meta: end_play
       when: prism_is_container
 
+    - name: Check if configured serial device exists
+      ansible.builtin.stat:
+        path: "/dev/{{ features.serial.device | default('ttyS0') }}"
+      register: prism_serial_device
+      when: features.serial.enabled | default(false)
+
     - name: Ensure getty is enabled on serial console
       ansible.builtin.systemd:
         name: "serial-getty@{{ features.serial.device }}.service"
         enabled: true
         state: started
         masked: false
-      when: features.serial.enabled | default(false)
+      when:
+        - features.serial.enabled | default(false)
+        - prism_serial_device.stat.exists | default(false)
+
+    - name: Skip serial getty setup when device is absent
+      ansible.builtin.debug:
+        msg: "Serial device /dev/{{ features.serial.device | default('ttyS0') }} not present; skipping serial-getty startup."
+      when:
+        - features.serial.enabled | default(false)
+        - not (prism_serial_device.stat.exists | default(false))
+
+    - name: Check if GRUB defaults file exists
+      ansible.builtin.stat:
+        path: /etc/default/grub
+      register: prism_grub_defaults
+
+    - name: Skip GRUB configuration when /etc/default/grub is missing
+      ansible.builtin.debug:
+        msg: "Skipping GRUB configuration because /etc/default/grub is not present on this target."
+      when: not (prism_grub_defaults.stat.exists | default(false))
+
+    - name: End GRUB tasks on hosts missing /etc/default/grub
+      ansible.builtin.meta: end_host
+      when: not (prism_grub_defaults.stat.exists | default(false))
 
     - name: Read current GRUB configuration
       ansible.builtin.slurp:
@@ -99,6 +128,36 @@
       when: features.grub_menu.timeout_style is defined
       notify: Update GRUB
 
+    - name: Resolve GRUB password hash value
+      ansible.builtin.set_fact:
+        prism_grub_password_hash_resolved: "{{ features.grub_password.hash | default('') }}"
+      when: features.grub_password.enabled | default(false)
+      no_log: true
+
+    - name: Generate GRUB password hash from plaintext
+      ansible.builtin.shell: |
+        set -o pipefail
+        printf '%s\n%s\n' "{{ features.grub_password.plaintext | replace('"', '\\"') }}" "{{ features.grub_password.plaintext | replace('"', '\\"') }}" | grub-mkpasswd-pbkdf2 | awk '/grub.pbkdf2/ {print $NF; exit}'
+      args:
+        executable: /bin/bash
+      register: prism_grub_hash_generated
+      changed_when: false
+      no_log: true
+      when:
+        - features.grub_password.enabled | default(false)
+        - (prism_grub_password_hash_resolved | default('') | string | length) == 0
+        - (features.grub_password.plaintext | default('') | string | length) > 0
+
+    - name: Store generated GRUB password hash
+      ansible.builtin.set_fact:
+        prism_grub_password_hash_resolved: "{{ prism_grub_hash_generated.stdout | trim }}"
+      when:
+        - features.grub_password.enabled | default(false)
+        - prism_grub_hash_generated is defined
+        - prism_grub_hash_generated.stdout is defined
+        - prism_grub_hash_generated.stdout | trim | length > 0
+      no_log: true
+
     - name: Check if GRUB password is already configured
       ansible.builtin.command: grep -q "^password_pbkdf2" /etc/grub.d/40_custom
       register: grub_password_check
@@ -110,13 +169,16 @@
       ansible.builtin.debug:
         msg: |
           To set a GRUB password:
-          1. Generate hash: grub-mkpasswd-pbkdf2
-          2. Set features.grub_password.hash in config.yml
+          1. Set features.grub_password.plaintext in inventory variables (or provide a pre-hashed value in features.grub_password.hash)
+          2. Re-run this playbook
+          Alternative:
+          1. Generate hash manually: grub-mkpasswd-pbkdf2
+          2. Set features.grub_password.hash in inventory variables
           3. Re-run this playbook
       when:
         - features.grub_password.enabled | default(false)
         - grub_password_check.rc != 0
-        - features.grub_password.hash is not defined
+        - prism_grub_password_hash_resolved | default('') | length == 0
 
     - name: Configure GRUB password protection
       ansible.builtin.blockinfile:
@@ -124,11 +186,11 @@
         marker: "# {mark} ANSIBLE MANAGED GRUB PASSWORD"
         block: |
           set superusers="{{ features.grub_password.username | default('root') }}"
-          password_pbkdf2 {{ features.grub_password.username | default('root') }} {{ features.grub_password.hash }}
+          password_pbkdf2 {{ features.grub_password.username | default('root') }} {{ prism_grub_password_hash_resolved }}
         create: false
       when:
         - features.grub_password.enabled | default(false)
-        - features.grub_password.hash is defined
+        - prism_grub_password_hash_resolved | default('') | length > 0
       notify: Update GRUB
 
     - name: Make boot entries require authentication
@@ -139,7 +201,7 @@
         backrefs: false
       when:
         - features.grub_password.enabled | default(false)
-        - features.grub_password.hash is defined
+        - prism_grub_password_hash_resolved | default('') | length > 0
         - features.grub_password.protect_all_entries | default(true)
       notify: Update GRUB
 
@@ -150,7 +212,7 @@
         replace: '\1--unrestricted \2'
       when:
         - features.grub_password.enabled | default(false)
-        - features.grub_password.hash is defined
+        - prism_grub_password_hash_resolved | default('') | length > 0
         - not (features.grub_password.protect_all_entries | default(true))
       notify: Update GRUB
 
@@ -161,6 +223,6 @@
         replace: '\1--users "" \3'
       when:
         - features.grub_password.enabled | default(false)
-        - features.grub_password.hash is defined
+        - prism_grub_password_hash_resolved | default('') | length > 0
         - not (features.grub_password.protect_all_entries | default(true))
       notify: Update GRUB

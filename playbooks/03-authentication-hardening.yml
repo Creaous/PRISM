@@ -21,45 +21,74 @@
         regexp: "{{ item.regexp }}"
         line: "{{ item.line }}"
         state: present
-        validate: '/usr/sbin/sshd -t -f %s'
+        validate: "/usr/sbin/sshd -t -f %s"
       loop:
-        - regexp: '^#?PermitRootLogin'
+        - regexp: "^#?PermitRootLogin"
           line: "PermitRootLogin {{ features.ssh_hardening.permit_root_login | default('prohibit-password') }}"
-        - regexp: '^#?MaxAuthTries'
+        - regexp: "^#?MaxAuthTries"
           line: "MaxAuthTries {{ features.ssh_hardening.max_auth_tries | default(3) }}"
-        - regexp: '^#?MaxSessions'
+        - regexp: "^#?MaxSessions"
           line: "MaxSessions {{ features.ssh_hardening.max_sessions | default(2) }}"
-        - regexp: '^#?LogLevel'
+        - regexp: "^#?LogLevel"
           line: "LogLevel {{ features.ssh_hardening.log_level | default('VERBOSE') }}"
-        - regexp: '^#?X11Forwarding'
+        - regexp: "^#?X11Forwarding"
           line: "X11Forwarding {{ features.ssh_hardening.x11_forwarding | default('no') }}"
-        - regexp: '^#?AllowTcpForwarding'
+        - regexp: "^#?AllowTcpForwarding"
           line: "AllowTcpForwarding {{ features.ssh_hardening.allow_tcp_forwarding | default('no') }}"
-        - regexp: '^#?AllowAgentForwarding'
+        - regexp: "^#?AllowAgentForwarding"
           line: "AllowAgentForwarding {{ features.ssh_hardening.allow_agent_forwarding | default('no') }}"
-        - regexp: '^#?TCPKeepAlive'
+        - regexp: "^#?TCPKeepAlive"
           line: "TCPKeepAlive {{ features.ssh_hardening.tcp_keep_alive | default('no') }}"
-        - regexp: '^#?ClientAliveCountMax'
+        - regexp: "^#?ClientAliveCountMax"
           line: "ClientAliveCountMax {{ features.ssh_hardening.client_alive_count_max | default(2) }}"
-        - regexp: '^#?ClientAliveInterval'
+        - regexp: "^#?ClientAliveInterval"
           line: "ClientAliveInterval {{ features.ssh_hardening.client_alive_interval | default(300) }}"
-        - regexp: '^#?Banner'
+        - regexp: "^#?Banner"
           line: "Banner {{ features.ssh_hardening.banner | default('none') }}"
       when: features.ssh_hardening.enabled | default(false)
-      notify: Restart SSH service
 
     - name: Configure SSH custom port
       ansible.builtin.lineinfile:
         path: /etc/ssh/sshd_config
-        regexp: '^#?Port'
+        regexp: "^#?Port"
         line: "Port {{ features.ssh_hardening.port }}"
         state: present
-        validate: '/usr/sbin/sshd -t -f %s'
+        validate: "/usr/sbin/sshd -t -f %s"
       when:
         - features.ssh_hardening.enabled | default(false)
         - features.ssh_hardening.port is defined
         - features.ssh_hardening.port != 22
-      notify: Restart SSH service
+
+    - name: Stop and disable ssh.socket when using custom SSH port
+      ansible.builtin.systemd:
+        name: ssh.socket
+        state: stopped
+        enabled: false
+      failed_when: false
+      when:
+        - features.ssh_hardening.enabled | default(false)
+        - features.ssh_hardening.port is defined
+        - features.ssh_hardening.port != 22
+
+    - name: Mask ssh.socket when using custom SSH port
+      ansible.builtin.systemd:
+        name: ssh.socket
+        masked: true
+      failed_when: false
+      when:
+        - features.ssh_hardening.enabled | default(false)
+        - features.ssh_hardening.port is defined
+        - features.ssh_hardening.port != 22
+
+    - name: Ensure ssh.service is enabled and started when using custom SSH port
+      ansible.builtin.systemd:
+        name: "{{ prism_ssh_service_name }}"
+        enabled: true
+        state: started
+      when:
+        - features.ssh_hardening.enabled | default(false)
+        - features.ssh_hardening.port is defined
+        - features.ssh_hardening.port != 22
 
     - name: Gather list of SSH-allowed users
       ansible.builtin.set_fact:
@@ -78,27 +107,25 @@
     - name: Configure SSH AllowUsers restriction
       ansible.builtin.lineinfile:
         path: /etc/ssh/sshd_config
-        regexp: '^#?AllowUsers'
+        regexp: "^#?AllowUsers"
         line: "AllowUsers {{ ssh_allowed_users | join(' ') }}{{ ' root' if features.ssh_hardening.allow_root_in_list | default(true) else '' }}"
         state: present
-        validate: '/usr/sbin/sshd -t -f %s'
+        validate: "/usr/sbin/sshd -t -f %s"
       when:
         - features.ssh_hardening.enabled | default(false)
         - features.ssh_hardening.limit_users | default(false)
         - ssh_allowed_users is defined
         - ssh_allowed_users | length > 0
-      notify: Restart SSH service
 
     - name: Remove SSH AllowUsers restriction when disabled
       ansible.builtin.lineinfile:
         path: /etc/ssh/sshd_config
-        regexp: '^#?AllowUsers'
+        regexp: "^#?AllowUsers"
         state: absent
-        validate: '/usr/sbin/sshd -t -f %s'
+        validate: "/usr/sbin/sshd -t -f %s"
       when:
         - features.ssh_hardening.enabled | default(false)
         - not (features.ssh_hardening.limit_users | default(false))
-      notify: Restart SSH service
 
     # Authentication Hardening
     - name: Backup original login.defs
@@ -115,17 +142,17 @@
         line: "{{ item.line }}"
         state: present
       loop:
-        - regexp: '^PASS_MAX_DAYS'
+        - regexp: "^PASS_MAX_DAYS"
           line: "PASS_MAX_DAYS   {{ features.auth_hardening.pass_max_days | default(90) }}"
-        - regexp: '^PASS_MIN_DAYS'
+        - regexp: "^PASS_MIN_DAYS"
           line: "PASS_MIN_DAYS   {{ features.auth_hardening.pass_min_days | default(1) }}"
-        - regexp: '^PASS_WARN_AGE'
+        - regexp: "^PASS_WARN_AGE"
           line: "PASS_WARN_AGE   {{ features.auth_hardening.pass_warn_age | default(7) }}"
-        - regexp: '^PASS_MIN_LEN'
+        - regexp: "^PASS_MIN_LEN"
           line: "PASS_MIN_LEN    {{ features.auth_hardening.pass_min_len | default(14) }}"
-        - regexp: '^#?SHA_CRYPT_MIN_ROUNDS'
+        - regexp: "^#?SHA_CRYPT_MIN_ROUNDS"
           line: "SHA_CRYPT_MIN_ROUNDS {{ features.auth_hardening.sha_crypt_min_rounds | default(5000) }}"
-        - regexp: '^UMASK'
+        - regexp: "^UMASK"
           line: "UMASK           {{ features.auth_hardening.umask | default('027') }}"
       when: features.auth_hardening.enabled | default(false)
 
@@ -142,15 +169,15 @@
         line: "{{ item.line }}"
         state: present
       loop:
-        - regexp: '^#?minlen'
+        - regexp: "^#?minlen"
           line: "minlen = {{ features.auth_hardening.pam_minlen | default(14) }}"
-        - regexp: '^#?dcredit'
+        - regexp: "^#?dcredit"
           line: "dcredit = {{ features.auth_hardening.pam_dcredit | default(-1) }}"
-        - regexp: '^#?ucredit'
+        - regexp: "^#?ucredit"
           line: "ucredit = {{ features.auth_hardening.pam_ucredit | default(-1) }}"
-        - regexp: '^#?lcredit'
+        - regexp: "^#?lcredit"
           line: "lcredit = {{ features.auth_hardening.pam_lcredit | default(-1) }}"
-        - regexp: '^#?ocredit'
+        - regexp: "^#?ocredit"
           line: "ocredit = {{ features.auth_hardening.pam_ocredit | default(-1) }}"
       when: features.auth_hardening.enabled | default(false)
 
@@ -158,7 +185,7 @@
       ansible.builtin.lineinfile:
         path: /etc/security/limits.conf
         regexp: '^\*\s+hard\s+core'
-        line: '*               hard    core            0'
+        line: "*               hard    core            0"
         state: present
       when:
         - features.auth_hardening.enabled | default(false)

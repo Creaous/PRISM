@@ -19,8 +19,9 @@
         - prism_is_container
         - not prism_container_networking_enabled
 
-    - name: End networking play on container targets
-      ansible.builtin.meta: end_play
+    - name: Mark networking reconfiguration as skipped on container targets
+      ansible.builtin.set_fact:
+        prism_skip_network_reconfiguration: true
       when:
         - features.networking.enabled | default(false)
         - prism_is_container
@@ -61,6 +62,7 @@
         - features.networking.enabled | default(false)
         - features.networking is defined
         - features.networking | length > 0
+        - not (prism_skip_network_reconfiguration | default(false))
       block:
         - name: Set networking backend
           ansible.builtin.set_fact:
@@ -136,11 +138,24 @@
           ansible.builtin.set_fact:
             prism_effective_dns_string: "{{ prism_effective_dns_list | join(' ') }}"
 
+        - name: Refresh apt cache before installing systemd-resolved
+          ansible.builtin.apt:
+            update_cache: true
+            cache_valid_time: 3600
+            lock_timeout: 120
+          register: prism_systemd_resolved_cache
+          retries: 5
+          delay: 5
+          until: prism_systemd_resolved_cache is succeeded
+          failed_when: false
+          when: features.networking.systemd_resolved.enabled | default(true)
+
         - name: Ensure systemd-resolved is installed
           ansible.builtin.apt:
             name: systemd-resolved
             state: present
-            update_cache: true
+            update_cache: false
+            lock_timeout: 120
           when: features.networking.systemd_resolved.enabled | default(true)
 
         - name: Configure systemd-resolved
@@ -246,11 +261,43 @@
         - name: Configure static networking with ifupdown
           when: prism_networking_backend == 'ifupdown'
           block:
+            - name: Purge netplan package
+              ansible.builtin.apt:
+                name: netplan.io
+                state: absent
+                purge: true
+                autoremove: true
+              failed_when: false
+
+            - name: Remove netplan configuration directory
+              ansible.builtin.file:
+                path: /etc/netplan
+                state: absent
+
+            - name: Stop and disable NetworkManager when using ifupdown
+              ansible.builtin.systemd:
+                name: NetworkManager
+                state: stopped
+                enabled: false
+              failed_when: false
+
+            - name: Stop and disable systemd-networkd when using ifupdown
+              ansible.builtin.systemd:
+                name: systemd-networkd
+                enabled: false
+              failed_when: false
+
             - name: Ensure ifupdown is installed
               ansible.builtin.apt:
                 name: ifupdown
                 state: present
                 update_cache: true
+
+            - name: Ensure networking service is enabled and started
+              ansible.builtin.systemd:
+                name: networking
+                enabled: true
+                state: started
 
             - name: Ensure interfaces include drop-in files
               ansible.builtin.lineinfile:
@@ -276,9 +323,28 @@
                 - features.networking.ifname is defined
                 - features.networking.ip4 is defined
 
-            - name: Bring up interface with ifupdown
-              ansible.builtin.command: ifup {{ features.networking.ifname }}
-              changed_when: false
+            - name: Reload interface with ifdown/ifup
+              ansible.builtin.shell: |
+                ifdown --force {{ features.networking.ifname }} || true
+                ifup {{ features.networking.ifname }}
+              register: prism_ifupdown_reload
+              changed_when: prism_ifupdown_reload.rc == 0
               failed_when: false
               when:
                 - features.networking.ifname is defined
+                - features.networking.apply_changes_immediately | default(false)
+
+            - name: Wait for host to come back after ifupdown reload
+              ansible.builtin.wait_for_connection:
+                delay: 2
+                timeout: 120
+              when:
+                - features.networking.ifname is defined
+                - features.networking.apply_changes_immediately | default(false)
+
+            - name: Defer interface reload until reboot
+              ansible.builtin.debug:
+                msg: "Interface configuration was updated but not reloaded (features.networking.apply_changes_immediately=false). Changes will take effect after reboot or manual interface restart."
+              when:
+                - features.networking.ifname is defined
+                - not (features.networking.apply_changes_immediately | default(false))

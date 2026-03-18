@@ -54,7 +54,6 @@
 
 - name: Deploy secure Docker runtime
   ansible.builtin.import_playbook: playbooks/13-docker-deployment.yml
-  when: features.docker_deployment.enabled | default(false)
   tags: ["docker", "containers", "compose"]
 
 - name: Manage system users

@@ -35,6 +35,7 @@ features:
       enabled: false
       package_url: "https://packages.wazuh.com/4.x/apt/pool/main/w/wazuh-agent/wazuh-agent_4.14.3-1_amd64.deb"
       manager: "wazuh.internal"
+      agent_name: ""  # Optional explicit agent name (defaults to features.system.hostname)
 
   # Secure Docker and Docker Compose deployment
   docker_deployment:
@@ -60,7 +61,7 @@ features:
   networking:
     enabled: false
     backend: ifupdown # networkmanager (feature-rich) or ifupdown (lightweight)
-    ifname: enp6s18
+    ifname: ens18
     ip4: "{{ system_ip4 }}"
     auto_gateway: true  # Derive gateway from ip4 CIDR (first usable host in subnet)
     gw4: 192.168.1.1  # Used only when auto_gateway is false
@@ -231,6 +232,7 @@ features:
   grub_password:
     enabled: true  # Set to true after generating password hash
     username: "prism-grub"
+    plaintext: ""  # Optional plaintext password; PRISM will generate hash on target
     hash: "grub.pbkdf2.sha512.10000.A3ED484D9F29D6551FD2B781DDBD02D4715D48A17A3B015E88D30EAF246ED4899B7441F725585FD363E3529A03055991188CA8A8DC41E519D2D38CF8E0D6BD67.0DF5657FC8EC8CAE38F3A37351A7AA918493F546B21A4347948C6C647CD0B66B6EB794B3CB2DA549C7CC2280A2ED9B2B91E795B75F2866B3D5547F1F70377640" # Use grub-mkpasswd-pbkdf2 | Default: grub-p@ssw0rd
     protect_all_entries: false  # Require password for all boot entries
 
@@ -239,6 +241,7 @@ features:
     enabled: true
     apply_password_policy: true  # Apply password expiry settings to managed users
     colorful_prompt: true  # Enable colorful PS1 prompt for all users
+    root_password_plaintext: ""  # Optional plaintext root password
     root_password: "$6$3570HfpwJO.GWZmZ$jnOpvzsdJNbk8BcmPtS/EC2WhwD3uy/IkiXy6wIwS15mzumQJIOhgQjWhnVqX0XFdORpswarEaz5Q9pMJsJJ./"  # Hashed password for root user (use: mkpasswd --method=sha-512) | Default: r00t
     users:
       - name: prism-operator
@@ -248,6 +251,7 @@ features:
         shell: /bin/bash
         ssh_key: ""  # Add your SSH public key here
         ssh_key_exclusive: false  # Set to true to remove all other keys
+        password_plaintext: ""  # Optional plaintext password
         password: "$6$5vlx4FMFDc2bvhDo$Njowty0.LACQrrzijEnjWnEv4sSd1sm1u3kcRp5Or7qN3JAuuXxw019cRbBl229OET8izA5f7zcDTnld.GXbN1"  # Hashed password (use: mkpasswd --method=sha-512) | Default: 0p3r@t0r
         locked: false  # Set to true to lock the account
         allow_ssh: true  # Allow this user to connect via SSH

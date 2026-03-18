@@ -2,11 +2,31 @@
 # Common default values used across PRISM playbooks
 # These values promote consistency and reduce duplication
 
+# Base PRISM feature configuration is loaded from config.yml.
+# Group and host overrides are merged in a controlled way to avoid replacing
+# the entire features dictionary.
+prism_base_config: "{{ lookup('ansible.builtin.template', inventory_dir ~ '/config.yml') | from_yaml }}"
+features: >-
+  {{
+    prism_base_config.features
+    | combine(prism_group_feature_overrides | default({}), recursive=True)
+    | combine(prism_host_feature_overrides | default({}), recursive=True)
+  }}
+
+# Optional per-user plaintext password overrides for managed users.
+# Group and host maps are merged, with host values taking precedence.
+prism_user_password_plaintext_overrides: >-
+  {{
+    (prism_group_user_password_plaintext_overrides | default({}))
+    | combine(prism_host_user_password_plaintext_overrides | default({}), recursive=True)
+  }}
+
 # Target platform resolution
 # features.target.type supports: auto, vm, lxc, container
 prism_target_type_config: "{{ features.target.type | default('auto') | lower }}"
 prism_virtualization_type: "{{ ansible_facts.virtualization_type | default('unknown') | lower }}"
 prism_virtualization_role: "{{ ansible_facts.virtualization_role | default('unknown') | lower }}"
+prism_virtualization_tech_guest: "{{ ansible_facts.virtualization_tech_guest | default([]) | map('lower') | list }}"
 prism_known_container_types:
   - lxc
   - lxd
@@ -22,7 +42,10 @@ prism_is_container: >-
     or
     (
       prism_target_type_config == 'auto'
-      and prism_virtualization_type in prism_known_container_types
+      and (
+        prism_virtualization_type in prism_known_container_types
+        or (prism_virtualization_tech_guest | intersect(prism_known_container_types) | length > 0)
+      )
     )
   }}
 

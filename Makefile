@@ -11,7 +11,6 @@ NC := \033[0m # No Color
 
 # Default variables
 INVENTORY ?= inventory.ini
-CONFIG ?= config.yml
 EXTRA_ARGS ?=
 
 help: ## Show this help message
@@ -32,7 +31,7 @@ install: ## Install Ansible dependencies (collections and roles)
 
 validate: ## Run pre-flight validation checks
 	@echo "$(GREEN)Running PRISM validation...$(NC)"
-	ansible-playbook -i $(INVENTORY) validate.yml -e "@$(CONFIG)" $(EXTRA_ARGS)
+	ansible-playbook -i $(INVENTORY) validate.yml $(EXTRA_ARGS)
 
 syntax: ## Check playbook syntax
 	@echo "$(GREEN)Checking playbook syntax...$(NC)"
@@ -43,7 +42,7 @@ check: syntax validate ## Run all checks (syntax + validation)
 
 deploy: ## Deploy full PRISM hardening configuration
 	@echo "$(GREEN)Deploying PRISM hardening...$(NC)"
-	ansible-playbook -i $(INVENTORY) all.yml -e "@$(CONFIG)" $(EXTRA_ARGS)
+	ansible-playbook -i $(INVENTORY) all.yml $(EXTRA_ARGS)
 	@echo "$(GREEN)Deployment complete$(NC)"
 
 deploy-tags: ## Deploy specific components using tags (use TAGS=tag1,tag2)
@@ -53,7 +52,7 @@ ifndef TAGS
 	@exit 1
 endif
 	@echo "$(GREEN)Deploying PRISM with tags: $(TAGS)$(NC)"
-	ansible-playbook -i $(INVENTORY) all.yml -e "@$(CONFIG)" --tags $(TAGS) $(EXTRA_ARGS)
+	ansible-playbook -i $(INVENTORY) all.yml --tags $(TAGS) $(EXTRA_ARGS)
 
 deploy-skip-tags: ## Deploy while skipping specific components (use SKIP_TAGS=tag1,tag2)
 ifndef SKIP_TAGS
@@ -62,15 +61,15 @@ ifndef SKIP_TAGS
 	@exit 1
 endif
 	@echo "$(GREEN)Deploying PRISM, skipping tags: $(SKIP_TAGS)$(NC)"
-	ansible-playbook -i $(INVENTORY) all.yml -e "@$(CONFIG)" --skip-tags $(SKIP_TAGS) $(EXTRA_ARGS)
+	ansible-playbook -i $(INVENTORY) all.yml --skip-tags $(SKIP_TAGS) $(EXTRA_ARGS)
 
 dry-run: ## Run deployment in check mode (no changes)
 	@echo "$(GREEN)Running PRISM in dry-run mode...$(NC)"
-	ansible-playbook -i $(INVENTORY) all.yml -e "@$(CONFIG)" --check --diff $(EXTRA_ARGS)
+	ansible-playbook -i $(INVENTORY) all.yml --check --diff $(EXTRA_ARGS)
 
 diff: ## Show what would change without applying
 	@echo "$(GREEN)Showing PRISM changes...$(NC)"
-	ansible-playbook -i $(INVENTORY) all.yml -e "@$(CONFIG)" --check --diff $(EXTRA_ARGS)
+	ansible-playbook -i $(INVENTORY) all.yml --check --diff $(EXTRA_ARGS)
 
 list-hosts: ## List all hosts in inventory
 	@echo "$(GREEN)Listing hosts from inventory...$(NC)"
@@ -78,7 +77,7 @@ list-hosts: ## List all hosts in inventory
 
 list-tasks: ## List all tasks that would be executed
 	@echo "$(GREEN)Listing all tasks...$(NC)"
-	ansible-playbook -i $(INVENTORY) all.yml -e "@$(CONFIG)" --list-tasks
+	ansible-playbook -i $(INVENTORY) all.yml --list-tasks
 
 list-tags: ## List all available tags
 	@echo "$(GREEN)Available tags:$(NC)"

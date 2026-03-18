@@ -3,6 +3,122 @@
   hosts: all
   become: true
   tasks:
+    - name: Generate password hashes for plaintext managed users
+      ansible.builtin.command:
+        argv:
+          - openssl
+          - passwd
+          - -6
+          - -salt
+          - "{{ prism_user_password_salt }}"
+          - "{{ prism_user_password_plaintext }}"
+      register: prism_generated_user_password_hashes
+      changed_when: false
+      vars:
+        prism_user_password_plaintext_override: >-
+          {{
+            (prism_user_password_plaintext_overrides | default({})).get(item.name, '')
+          }}
+        prism_user_password_plaintext: >-
+          {{
+            prism_user_password_plaintext_override
+            if (prism_user_password_plaintext_override | string | length) > 0
+            else (item.password_plaintext | default(''))
+          }}
+        prism_user_password_hash: "{{ item.password | default('') }}"
+        prism_user_password_salt: "{{ ((inventory_hostname ~ ':' ~ item.name) | hash('sha256'))[:16] }}"
+      loop: "{{ features.user_management.users | default([]) }}"
+      when:
+        - features.user_management.enabled | default(false)
+        - features.user_management.users is defined
+        - features.user_management.users | length > 0
+        - (prism_user_password_hash | string | length) == 0
+        - (prism_user_password_plaintext | string | length) > 0
+      no_log: true
+
+    - name: Build managed users list with resolved password values
+      ansible.builtin.set_fact:
+        prism_managed_users_resolved: >-
+          {{
+            (prism_managed_users_resolved | default([]))
+            +
+            [
+              item | combine({'resolved_password': prism_user_password_resolved}, recursive=True)
+            ]
+          }}
+      vars:
+        prism_user_password_plaintext_override: >-
+          {{
+            (prism_user_password_plaintext_overrides | default({})).get(item.name, '')
+          }}
+        prism_user_password_plaintext: >-
+          {{
+            prism_user_password_plaintext_override
+            if (prism_user_password_plaintext_override | string | length) > 0
+            else (item.password_plaintext | default(''))
+          }}
+        prism_user_password_hash: "{{ item.password | default('') }}"
+        prism_user_password_generated_hash: >-
+          {{
+            (
+              prism_generated_user_password_hashes.results
+              | default([])
+              | selectattr('item.name', 'equalto', item.name)
+              | map(attribute='stdout')
+              | first
+            ) | default('')
+          }}
+        prism_user_password_resolved: >-
+          {{
+            prism_user_password_hash
+            if (prism_user_password_hash | string | length) > 0
+            else (
+              prism_user_password_generated_hash
+              if (prism_user_password_generated_hash | string | length) > 0
+              else ''
+            )
+          }}
+      loop: "{{ features.user_management.users | default([]) }}"
+      when:
+        - features.user_management.enabled | default(false)
+        - features.user_management.users is defined
+        - features.user_management.users | length > 0
+      no_log: true
+
+    - name: Resolve root password value
+      ansible.builtin.command:
+        argv:
+          - openssl
+          - passwd
+          - -6
+          - -salt
+          - "{{ prism_root_password_salt }}"
+          - "{{ features.user_management.root_password_plaintext | default('') }}"
+      register: prism_generated_root_password_hash
+      changed_when: false
+      vars:
+        prism_root_password_salt: "{{ ((inventory_hostname ~ ':root') | hash('sha256'))[:16] }}"
+      when:
+        - features.user_management.enabled | default(false)
+        - (features.user_management.root_password | default('') | string | length) == 0
+        - (features.user_management.root_password_plaintext | default('') | string | length) > 0
+      no_log: true
+
+    - name: Resolve root password value
+      ansible.builtin.set_fact:
+        prism_root_password_resolved: >-
+          {{
+            (features.user_management.root_password | default(''))
+            if (features.user_management.root_password | default('') | string | length) > 0
+            else (
+              (prism_generated_root_password_hash.stdout | default(''))
+              if (prism_generated_root_password_hash is defined and (prism_generated_root_password_hash.stdout | default('') | string | length) > 0)
+              else ''
+            )
+          }}
+      when: features.user_management.enabled | default(false)
+      no_log: true
+
     - name: Ensure sudo group exists
       ansible.builtin.group:
         name: sudo
@@ -18,24 +134,24 @@
         shell: "{{ item.shell | default('/bin/bash') }}"
         create_home: true
         state: present
-      loop: "{{ features.user_management.users | default([]) }}"
+      loop: "{{ prism_managed_users_resolved | default([]) }}"
       when:
         - features.user_management.enabled | default(false)
-        - features.user_management.users is defined
-        - features.user_management.users | length > 0
+        - prism_managed_users_resolved is defined
+        - prism_managed_users_resolved | length > 0
       no_log: true
 
     - name: Set passwords for users
       ansible.builtin.user:
         name: "{{ item.name }}"
-        password: "{{ item.password }}"
+        password: "{{ item.resolved_password }}"
         update_password: always
-      loop: "{{ features.user_management.users | default([]) }}"
+      loop: "{{ prism_managed_users_resolved | default([]) }}"
       when:
         - features.user_management.enabled | default(false)
-        - features.user_management.users is defined
-        - item.password is defined
-        - item.password | length > 0
+        - prism_managed_users_resolved is defined
+        - item.resolved_password is defined
+        - item.resolved_password | length > 0
       no_log: true
 
     - name: Set SSH authorized keys for users
@@ -44,10 +160,10 @@
         key: "{{ item.ssh_key }}"
         state: present
         exclusive: "{{ item.ssh_key_exclusive | default(false) }}"
-      loop: "{{ features.user_management.users | default([]) }}"
+      loop: "{{ prism_managed_users_resolved | default([]) }}"
       when:
         - features.user_management.enabled | default(false)
-        - features.user_management.users is defined
+        - prism_managed_users_resolved is defined
         - item.ssh_key is defined
         - item.ssh_key | length > 0
 
@@ -56,32 +172,32 @@
         name: "{{ item.name }}"
         password_expire_max: "{{ item.password_max_days | default(features.auth_hardening.pass_max_days | default(90)) }}"
         password_expire_min: "{{ item.password_min_days | default(features.auth_hardening.pass_min_days | default(1)) }}"
-      loop: "{{ features.user_management.users | default([]) }}"
+      loop: "{{ prism_managed_users_resolved | default([]) }}"
       when:
         - features.user_management.enabled | default(false)
         - features.user_management.apply_password_policy | default(true)
-        - features.user_management.users is defined
-        - features.user_management.users | length > 0
+        - prism_managed_users_resolved is defined
+        - prism_managed_users_resolved | length > 0
 
     - name: Lock/unlock user accounts
       ansible.builtin.user:
         name: "{{ item.name }}"
         password_lock: "{{ item.locked | default(false) }}"
-      loop: "{{ features.user_management.users | default([]) }}"
+      loop: "{{ prism_managed_users_resolved | default([]) }}"
       when:
         - features.user_management.enabled | default(false)
-        - features.user_management.users is defined
+        - prism_managed_users_resolved is defined
         - item.locked is defined
 
     - name: Change root user password
       ansible.builtin.user:
         name: root
-        password: "{{ features.user_management.root_password }}"
+        password: "{{ prism_root_password_resolved }}"
         update_password: always
       when:
         - features.user_management.enabled | default(false)
-        - features.user_management.root_password is defined
-        - features.user_management.root_password | length > 0
+        - prism_root_password_resolved is defined
+        - prism_root_password_resolved | length > 0
       no_log: true
 
     - name: Configure colorful PS1 for root user
@@ -92,7 +208,7 @@
           # Red user, yellow host (FQDN), blue path
           PS1='${debian_chroot:+($debian_chroot)}\[\033[01;31m\]\u\[\033[00m\]@\[\033[01;33m\]\H\[\033[00m\]:\[\033[01;34m\]\w\[\033[00m\]\$ '
         create: true
-        mode: '0644'
+        mode: "0644"
       when:
         - features.user_management.enabled | default(false)
         - features.user_management.colorful_prompt | default(true)
@@ -106,11 +222,11 @@
           PS1='${debian_chroot:+($debian_chroot)}\[\033[01;32m\]\u\[\033[00m\]@\[\033[01;33m\]\H\[\033[00m\]:\[\033[01;34m\]\w\[\033[00m\]\$ '
         owner: "{{ item.name }}"
         group: "{{ item.name }}"
-        mode: '0644'
+        mode: "0644"
         create: true
-      loop: "{{ features.user_management.users | default([]) }}"
+      loop: "{{ prism_managed_users_resolved | default([]) }}"
       when:
         - features.user_management.enabled | default(false)
         - features.user_management.colorful_prompt | default(true)
-        - features.user_management.users is defined
-        - features.user_management.users | length > 0
+        - prism_managed_users_resolved is defined
+        - prism_managed_users_resolved | length > 0

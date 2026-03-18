@@ -1,7 +1,7 @@
 ---
 # Pre-flight validation playbook for PRISM
 # Run this before executing the main playbook to verify prerequisites
-# Usage: ansible-playbook -i inventory.ini validate.yml -e "@config.yml"
+# Usage: ansible-playbook -i inventory.ini validate.yml
 
 - name: Validate PRISM prerequisites and configuration
   hosts: all
@@ -18,12 +18,12 @@
       delegate_to: localhost
       run_once: true
 
-    - name: Verify config.yml is loaded
+    - name: Verify features are loaded from inventory variables
       ansible.builtin.assert:
         that:
           - features is defined
-        fail_msg: "Configuration file not loaded. Run with: -e '@config.yml'"
-        success_msg: "Configuration file loaded successfully"
+        fail_msg: "No features variable found. Define settings in group_vars/ or host_vars/."
+        success_msg: "Feature configuration loaded successfully"
       run_once: true
 
     - name: Validate target type selection
@@ -97,16 +97,23 @@
       become: true
       when: not prism_is_container
 
-    - name: Validate GRUB password hash format (if enabled)
+    - name: Validate GRUB password configuration (if enabled)
       ansible.builtin.assert:
         that:
-          - features.grub_password.hash is defined
-          - features.grub_password.hash | length > 0
-          - features.grub_password.hash is match('^grub\\.pbkdf2\\.sha512\\.')
+          - >-
+            (
+              (features.grub_password.hash | default('') | string | length) > 0
+              and
+              (features.grub_password.hash | string) is match('^grub\\.pbkdf2\\.sha512\\.')
+            )
+            or
+            ((features.grub_password.plaintext | default('') | string | length) > 0)
         fail_msg: |
-          Invalid GRUB password hash format.
-          Generate with: grub-mkpasswd-pbkdf2
-        success_msg: "GRUB password hash format is valid"
+          Invalid GRUB password configuration.
+          Set either:
+          - features.grub_password.hash (grub.pbkdf2.sha512...)
+          - features.grub_password.plaintext (plain text password)
+        success_msg: "GRUB password configuration is valid"
       when:
         - features.grub_password.enabled | default(false)
       run_once: true

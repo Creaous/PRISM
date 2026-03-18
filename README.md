@@ -47,18 +47,15 @@ An automated deployment framework for hardening and securing Linux servers throu
 
 4. **Create and customize configuration**
 
-   ```bash
-   make init-config
-   # or manually:
-   cp config.yml.example config.yml
-   # Edit config.yml to match your requirements
-   ```
+Use `config.yml.example` as reference, then define `features` in inventory variables.
+Put shared defaults in `group_vars/all.yml`, group overrides in files like `group_vars/LAN.yml`, and host overrides in `host_vars/<hostname>.yml`.
 
 5. **Validate configuration**
+
    ```bash
    make validate
    # or:
-   ansible-playbook -i inventory.ini validate.yml -e "@config.yml"
+   ansible-playbook -i inventory.ini validate.yml
    ```
 
 ### Deployment
@@ -68,7 +65,7 @@ An automated deployment framework for hardening and securing Linux servers throu
 ```bash
 make deploy
 # or:
-ansible-playbook -i inventory.ini all.yml -u root -k -e "@config.yml"
+ansible-playbook -i inventory.ini all.yml -u root -k
 ```
 
 **Dry run (check mode):**
@@ -100,7 +97,8 @@ Built on Ansible for rapid, scalable infrastructure deployment.
 
 ## Tested Distributions
 
-- Debian 12
+- Debian 12 (VM)
+- Debian 13 (VM & LXC)
 
 ## Project Structure
 
@@ -161,6 +159,43 @@ PRISM/
 - **Drop-in Ready**: Compatible with existing infrastructure
 
 ## Security Hardening
+
+### Native Variable Overrides
+
+PRISM now follows Ansible's native precedence model: define shared defaults in `group_vars/all.yml`, group overrides in `group_vars/<group>.yml`, and host-specific overrides in `host_vars/<host>.yml`.
+
+Example for LAN and VLAN110 with per-host Docker disable:
+
+```yaml
+# group_vars/LAN.yml
+features:
+  grub_password:
+    plaintext: "lan-grub-pass"
+  user_management:
+    root_password_plaintext: "lan-root-pass"
+    users:
+      - name: prism-operator
+        password_plaintext: "lan-operator-pass"
+```
+
+```yaml
+# group_vars/VLAN110.yml
+features:
+  grub_password:
+    plaintext: "vlan110-grub-pass"
+  user_management:
+    root_password_plaintext: "vlan110-root-pass"
+    users:
+      - name: prism-operator
+        password_plaintext: "vlan110-operator-pass"
+```
+
+```yaml
+# host_vars/lan-node-03.yml
+features:
+  docker_deployment:
+    enabled: false
+```
 
 ### Target Types
 
@@ -309,7 +344,7 @@ This checks:
 Error: features is not defined
 ```
 
-Solution: Ensure you're passing the config file with `-e "@config.yml"`
+Solution: Ensure your inventory variables define `features` in `group_vars/` or `host_vars/`
 
 **2. SSH connection issues**
 
